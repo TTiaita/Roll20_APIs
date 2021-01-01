@@ -43,8 +43,6 @@ var ClockTokens = ClockTokens || (function () {
          */
         handleInput = function (msg) {
             if (msg.type == "api") {
-                log(msg);
-
                 // Based on user setting, ignore non-GM players' commands
                 if (userOptions["GM Only"] && !playerIsGM(msg.playerid)) {
                     log("ClockTokens: Command from " + msg.who + " blocked due to GM-only mode being active");
@@ -62,11 +60,9 @@ var ClockTokens = ClockTokens || (function () {
                         var tokens = msg.selected.flatMap(function (o) {
                             return o._type == "graphic" ? getObj("graphic", o._id) : [];
                         });
-                        log("token list: " + tokens);
 
                         tokens.forEach(obj => {
                             var allSides = getSides(obj);
-                            log("token: " + obj + "\nsides: " + allSides);
                             if (allSides.length <= 1) {
                                 // Nothing to change
                                 return;
