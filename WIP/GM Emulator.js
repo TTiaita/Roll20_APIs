@@ -9,6 +9,32 @@ class GMEmulator {
         this.ready = false;       // Var to block use until loaded
         this.errorred = false;    // Var to block use due to un-resolvable errors
         this.sceneRunning = false;// Var indicating that a scene is happening 
+        this.control = {
+            modes: { 
+                passive: 0,     // Emulator is acting as a random table roller, only responding to !scene, !fate, !event, and !chaos.
+                auto: 1         // Emulator is actively controlling the flow of scenes.
+            },
+            states: {
+                idle: 0,            // Automatic mode has not been initiated before
+                sceneStart: 1,      // A scene has been initiated. Waiting on player to click 'continue'.
+                sceneDesc: 2,       // Scene generated and displayed. Waiting on player to provide scene description.
+                sceneRunning: 3,    // Players take over the moment-by-moment running of the scene as it progresses. Waiting on players to call !gme_endscene
+                sceneEnd: 4,        // The scene has been ended. Waiting on players to provide conclusion description.
+                sceneChaos: 5,      // Asks players to determine if chaos shifts up or down. Waiting on player y/n.
+                sceneThreads: 6,    // Asks the players to update threads.
+                sceneSummary: 7,    // Sumarises the scene that has just ended. Waiting on player input to begin new scene or move to review mode.
+            },
+            menuStates: {
+                none: 0,
+                menuLists: 1,   // Displays the list menu. Waiting on player input to begin/resume scene or open specific list.
+                listChar: 2,    // Displays contents of the Characters list with add/update/remove buttons. Waiting on player input to start/resume scene or return to menu.
+                listThread: 3   // Displays contents of the Threads listwith add/update/remove buttons. Waiting on player  input to start/resume scene or return to menu.
+            },
+            currentMode: 0,
+            currentState: 0,
+            currentScene: {}   
+        };
+
 
         // Registered command list
         this.commandList = new Map();
