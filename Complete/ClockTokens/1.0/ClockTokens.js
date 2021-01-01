@@ -3,7 +3,7 @@ var ClockTokens = ClockTokens || (function () {
 
     var version = "1.0",
         listenerActive = false,
-        userOptions = (globalconfig &&  globalconfig.ClockTokens) || {
+        userOptions = (globalconfig && globalconfig.ClockTokens) || {
             "GM Only": true,
             "Use Macros": true
         },
@@ -14,7 +14,7 @@ var ClockTokens = ClockTokens || (function () {
         },
 
         /** Prints script user options to log */
-        checkOptions = function() {
+        checkOptions = function () {
             log("-GM Only: " + userOptions["GM Only"] + "\n-Use Macros: " + userOptions["Use Macros"]);
         },
 
@@ -37,19 +37,19 @@ var ClockTokens = ClockTokens || (function () {
             return;
         },
 
-         /** 
-          * Processes input from the user
-          * @param {*} msg - The Roll20 chat message object/
-          */
+        /** 
+         * Processes input from the user
+         * @param {*} msg - The Roll20 chat message object/
+         */
         handleInput = function (msg) {
             if (msg.type == "api") {
                 log(msg);
-                
+
                 // Based on user setting, ignore non-GM players' commands
                 if (userOptions["GM Only"] && !playerIsGM(msg.playerid)) {
                     log("ClockTokens: Command from " + msg.who + " blocked due to GM-only mode being active");
-                    sendChat("player|" + msg.playerid , "/w gm " + "ClockTokens command from " + msg.who + " blocked due to GM-only mode being active", null, {noarchive:true});
-                    sendChat("ClockTokens", "/w " + msg.who + " You do not have permission to run commands.", null, {noarchive:true} );
+                    sendChat("player|" + msg.playerid, "/w gm " + "ClockTokens command from " + msg.who + " blocked due to GM-only mode being active", null, { noarchive: true });
+                    sendChat("ClockTokens", "/w " + msg.who + " You do not have permission to run commands.", null, { noarchive: true });
                     return;
                 }
 
@@ -59,7 +59,7 @@ var ClockTokens = ClockTokens || (function () {
                         sendChat("API", "Error with !clocktokens command.");
                     }
                     if (msg.selected && msg.selected.length > 0) {
-                        var tokens = msg.selected.flatMap(function(o){
+                        var tokens = msg.selected.flatMap(function (o) {
                             return o._type == "graphic" ? getObj("graphic", o._id) : [];
                         });
                         log("token list: " + tokens);
@@ -135,7 +135,7 @@ var ClockTokens = ClockTokens || (function () {
         manageMacros = function () {
             if (userOptions["Use Macros"]) {
                 var gmId = findObjs({ _type: 'player' })[0].id;
-                var whoCanSee = !userOptions["GM Only"] ? "all" : ""; 
+                var whoCanSee = !userOptions["GM Only"] ? "all" : "";
                 addMacro("TokenNext", "!clocktokens next", gmId, whoCanSee);
                 addMacro("TokenPrev", "!clocktokens prev", gmId, whoCanSee);
                 addMacro("TokenFirst", "!clocktokens first", gmId, whoCanSee);
@@ -185,10 +185,10 @@ var ClockTokens = ClockTokens || (function () {
          * Deletes the specified macro, if it exists
          * @param {string} mName - The Name of the macro
          */
-        removeMacro = function(mName) {
+        removeMacro = function (mName) {
             var macro = findObjs({ type: "macro", name: mName });
             if (macro.length > 0) {
-                macro.forEach(function(m) {
+                macro.forEach(function (m) {
                     m.remove();
                 });
             }
