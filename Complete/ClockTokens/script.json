@@ -14,7 +14,7 @@
             "description": "The commands and macros will only be visible and usable by players with GM permissions."
         },
         {
-            "name": "Create Macros",
+            "name": "Use Macros",
             "type": "checkbox",
             "value": "true",
             "checked": "checked",
