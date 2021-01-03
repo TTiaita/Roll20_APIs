@@ -211,16 +211,20 @@ class messageBuilder {
     }
 
     /**
-     * Appends a new html element.
+     * Appends a new html element. Automatically uses the style that amtches the tag, if exists.
      * @param {string} tag the tag name (a, table, dive, etc).
-     * @param {string} style a space-delimited string of css style names to apply to the object.
+     * @param {string} style a space-delimited string of css style names to apply to the object. These styles supercede the implict tag style.
      * @param {string} contents the innerHTML of the element.
      * @param {*} attr an object of html attributes to set for the element
      * @return {*} returns current object for chaining.
      */
     addTag(tag, style, contents, attr) {
         this.html = null;
-        let css = this._getStyleFromClasses(tag + " " + style);
+        var styleList = tag;
+        if (style && style.toString().length > 0) {
+            styleList += " " + style;
+        }
+        let css = this._getStyleFromClasses(stlyeList);
         this.data.push(this._createElement(tag, messageBuilder.tagType.open, contents, css, attr));
         return this;
     }
@@ -399,8 +403,7 @@ class messageBuilder {
     }
 }
 
-/*
-Example:
+/* Example:
 
 // Using css class to construct a css styyle object.
 // Note that this can just as easily be a standard object declaration with properties; the cssBuilder is not required
