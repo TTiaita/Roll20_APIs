@@ -10,7 +10,7 @@ class cssBuilder{
      * @memberof cssBuilder
      */
     constructor() {
-        style = {};
+        this.style = {};
     }
 
     /** 
@@ -19,7 +19,7 @@ class cssBuilder{
      * @memberof cssBuilder
     */
     apply = function() {
-        return style;
+        return this.style;
     }
 
     /** 
@@ -29,7 +29,7 @@ class cssBuilder{
      * @memberof cssBuilder
     */
     width = function(val) {
-        style["width"] = val;
+        this.style["width"] = val;
         return this;
     }
 
@@ -40,7 +40,7 @@ class cssBuilder{
      * @memberof cssBuilder
     */
     italics = function(val) {
-        style["font-style"] = val ? "italics" : "normal";
+        this.style["font-style"] = val ? "italics" : "normal";
         return this;
     }
 
@@ -51,7 +51,7 @@ class cssBuilder{
      * @memberof cssBuilder
     */
     underline = function(val) {
-        style["text-decoration"] = val ? "underline" : "none";
+        this.style["text-decoration"] = val ? "underline" : "none";
         return this;
     }
 
@@ -62,7 +62,7 @@ class cssBuilder{
      * @memberof cssBuilder
     */
     strikethrough = function(val) {
-        style["text-decoration"] = val ? "line-through" : "none";
+        this.style["text-decoration"] = val ? "line-through" : "none";
         return this;
     }
 
@@ -73,7 +73,7 @@ class cssBuilder{
      * @memberof cssBuilder
     */
     bold = function(val) {
-        style["font-weight"] = val ? "bold" : "normal";
+        this.style["font-weight"] = val ? "bold" : "normal";
         return this;
     }
 
@@ -87,11 +87,11 @@ class cssBuilder{
      * @memberof cssBuilder
      */
     border = function(top, bottom, left, right) {
-        var bWidth = "2px ";
-        style["border-width"] = (top ? bWidth : "0px ") + (right ?  bWidth : "0px ") + (bottom ?  bWidth : "0px ") + (left ?  bWidth : "0px ");
-        style["border-collapse"] = "collapse";
-        style["border-color"] = "black";
-        style["border-style"] = "solid";
+        const bWidth = "2px ";
+        this.style["border-width"] = (top ? bWidth : "0px ") + (right ?  bWidth : "0px ") + (bottom ?  bWidth : "0px ") + (left ?  bWidth : "0px ");
+        this.style["border-collapse"] = "collapse";
+        this.style["border-color"] = "black";
+        this.style["border-style"] = "solid";
         return this;
     }
 
@@ -102,7 +102,7 @@ class cssBuilder{
      * @memberof cssBuilder
      */
     fontColour = function(col) {
-        style["color"] = col;
+        this.style["color"] = col;
         return this;
     }
 
@@ -113,7 +113,7 @@ class cssBuilder{
      * @memberof cssBuilder
      */
     backgroundColour = function(col) {
-        style["background-color"] = col;
+        this.style["background-color"] = col;
         return this;
     }
 
@@ -123,7 +123,7 @@ class cssBuilder{
      * @memberof cssBuilder
      */
     alignCentre = function() {
-        style["text-align"] = "center";
+        this.style["text-align"] = "center";
         return this;
     }
 
@@ -133,7 +133,7 @@ class cssBuilder{
      * @memberof cssBuilder
      */
     alignLeft = function() {
-        style["text-align"] = "left";
+        this.style["text-align"] = "left";
         return this;
     }
 
@@ -143,7 +143,7 @@ class cssBuilder{
      * @memberof cssBuilder
      */
     alignRight = function() {
-        style["text-align"] = "right";
+        this.style["text-align"] = "right";
         return this;
     }
 
@@ -157,7 +157,7 @@ class cssBuilder{
      * @memberof cssBuilder
      */
     margin = function(top, bottom, left, right) {
-        style["margin"] = top + "px " + right + "px " + bottom + "px " + left + "px";
+        this.style["margin"] = top + "px " + right + "px " + bottom + "px " + left + "px";
         return this;
     }
 
@@ -171,7 +171,7 @@ class cssBuilder{
      * @memberof cssBuilder
      */
     padding = function(top, bottom, left, right) {
-        style["padding"] = top + "px " + right + "px " + bottom + "px " + left + "px";
+        this.style["padding"] = top + "px " + right + "px " + bottom + "px " + left + "px";
         return this;
     };
 };
@@ -213,14 +213,14 @@ class messageBuilder {
     /**
      * Appends a new html element.
      * @param {string} tag the tag name (a, table, dive, etc).
-     * @param {string} contents the innerHTML of the element.
      * @param {string} style a space-delimited string of css style names to apply to the object.
+     * @param {string} contents the innerHTML of the element.
      * @param {*} attr an object of html attributes to set for the element
      * @return {*} returns current object for chaining.
      */
-    addTag(tag, contents, style, attr) {
+    addTag(tag, style, contents, attr) {
         this.html = null;
-        let css = style ? this._getStyleFromClasses(style) : null;
+        let css = this._getStyleFromClasses(tag + " " + style);
         this.data.push(this._createElement(tag, messageBuilder.tagType.open, contents, css, attr));
         return this;
     }
@@ -273,7 +273,6 @@ class messageBuilder {
             return this.html;
         }
         let str = "";
-        var i = 0;
         this.data.forEach((elem) => {
             let tag;
             switch (elem.type) {
@@ -404,34 +403,33 @@ class messageBuilder {
 Example:
 
 // Using css class to construct a css styyle object.
+// Note that this can just as easily be a standard object declaration with properties; the cssBuilder is not required
 let allStyles = {
-    headScene: css().backgroundColour("66ccff").apply(),
-    headInstruct: css().backgroundColour("bfbfbf").apply(),
-    headFate: css().backgroundColour("cc66ff").apply(),
-    headEvent: css().backgroundColour("33cc33").apply(),
-    headError: css().backgroundColour("red").apply(),
-    rowMain: css().backgroundColour("white").apply(),
-    rowAlt: css().backgroundColour("d9d9d9").apply(),
-    rowHead: css().bold(true).alignCentre().apply(),
-    cellBlue: css().fontColour("blue").apply(),
-    cell: css().padding(2, 2, 5, 5).apply(),
-    table: css().width("100%").border(true, true, true, true).apply(),
-    b: css().bold(true).apply(),
-    i: css().italics(true).apply()
+    table: new cssBuilder().width("100%").border(true, true, true, true).apply(),
+    thead: new cssBuilder().bold(true).alignCentre().apply(),
+    cell: new cssBuilder().padding(2, 2, 5, 5).backgroundColour("cc66ff").border(false, true, false, false).apply(),
+    rowMain: new cssBuilder().backgroundColour("white").apply(),
+    rowAlt: new cssBuilder().backgroundColour("d9d9d9").apply(),
 };
 
 // Initialising a messageBuilder object with a css style object.
 let test = new messageBuilder(allStyles);
 
 // Constucting the HTML data
-test.addTag("table", null, "table")
-        .addTag("thead", null, "rowHead headFate")
-            .addSingle("th", "this one has text", null, {colspan: 2})
-        .closeTag("thead")
-        .addTag("tr", "", "rowMain").addSingle("td", "Key 1", "cell").addSingle("td", "value one", "cell")
-        .addTag("tr", "", "rowAlt").addSingle("td", "Key 2", "cell").addSingle("td", "value two", "cell")
+test.addTag("table") // Implicitly used the 'table' style
+        .addTag("thead")
+            .addTag("th", null, "this one has text", {colspan: 2}) // No styling applied but includes content
+        .closeTag("thead") // Close all tags until you close <thead>
+        .addTag("tr", "rowMain")
+            .addSingle("td", "Key 1", "cell").addSingle("td", "cell", "value one")
+        .closeTag() // Close most recent unclosed tag (in this case the opening <tr>)
+        .addTag("tr", "rowAlt")
+            .addSingle("td", "Key 2", "cell").addSingle("td", "cell", "value two")
     .closeTag(true); // Note that since there is no '<true>' tag to close, this will close all open elements
 
-// 
+// While the example above utilises chaining, this is not necessary, and the messageBuilder object may be assigned to a variable, 
+// stored, and retireved without effecting the result.
+
+// Output the result to the log (remember to replace escaped quotes before viewing).
 log("css test: " + test.toString());
 */

@@ -65,9 +65,14 @@ var GMEmulator = GMEmulator || (function(){
     // Page 9
     fateRoll = function(commands) {
         debugLog("fateRoll()");
-        var chance = commands[1];
-        var fate = generate.fate(chance);
-        sendMessage("fate", fate);
+        const chance = commands[1];
+        const fate = generate.fate(chance);
+        const msg = new messageBuilder(styles)
+            .addTag("table", "table")
+                .addTag("thead", "rowHead headScene").addSingle("th", "th", "Scene" ,{colspan: 2}).closeTag()
+                .addTag("tr", "rowMain")
+                    .addSingle("td", "b", "Chaos").addSingle
+        sendMessage(msg);
     },
 
     // Page 14-17
@@ -105,8 +110,7 @@ var GMEmulator = GMEmulator || (function(){
                     sendMessage("error", getDisplayName(), "!chaos only accepts '+', '-', or 'reset' as its argument");
                     return;
             }
-
-            StateHandler.write(moduleName, storedChaosKey, newVal);
+            setChaos(newVal);
         }
         sendChaos(symbol);
     },
@@ -171,7 +175,7 @@ var GMEmulator = GMEmulator || (function(){
         sendChat("API", "Debug = " + getDebug());
     },
 
-    //
+    /*
     startScene = function(commands) {
         debugLog("startScene()");
         if (sceneRunning && commands.length == 1) {
@@ -235,7 +239,6 @@ var GMEmulator = GMEmulator || (function(){
         }
     },
 
-    //
     endScene = function(commands) {
         if (sceneRunning) {
             if (!currentScene.end && commands.length == 1) {
@@ -285,6 +288,7 @@ var GMEmulator = GMEmulator || (function(){
             sendMessage("error", "No scene is currently running. Use [!gme_startscene] to begin one.");
         }
     },
+    //*/
 
     //----------------//
     // Roll Functions //
@@ -648,116 +652,422 @@ var GMEmulator = GMEmulator || (function(){
     //-------------------//
     sendMessage = function(msg) {
         sendChat(getDisplayName(), msg);
-    },
-
-    css = function(){
-        // CSS order: top right bottom left
-        style = {},
-    
-        apply = function() {
-            return style;
-        },
-    
-        width = function(val) {
-            style["width"] = val;
-            return this;
-        },
-    
-        italics = function(val) {
-            style["font-style"] = val ? "italics" : "normal";
-            return this;
-        }, 
-    
-        underline = function(val) {
-            style["text-decoration"] = val ? "underline" : "none";
-            return this;
-        },
-    
-        strikethrough = function(val) {
-            style["text-decoration"] = val ? "line-through" : "none";
-            return this;
-        },
-    
-        bold = function(val) {
-            style["font-weight"] = val ? "bold" : "normal";
-            return this;
-        },
-    
-        border = function(top, bottom, sides) {
-            var bWidth = "2px ";
-            style["border-width"] = (top ? bWidth : "0px ") + (sides ?  bWidth : "0px ") + (bottom ?  bWidth : "0px ") + (sides ?  bWidth : "0px ");
-            style["border-collapse"] = "collapse";
-            style["border-color"] = "black";
-            style["border-style"] = "solid";
-            return this;
-        },
-    
-        fontColour = function(col) {
-            style["color"] = col;
-            return this;
-        },
-    
-        backgroundColour = function(col) {
-            style["background-color"] = col;
-            return this;
-        },
-    
-        alignCentre = function() {
-            style["text-align"] = "center";
-            return this;
-        },
-    
-        alignLeft = function() {
-            style["text-align"] = "left";
-            return this;
-        },
-    
-        alignRight = function() {
-            style["text-align"] = "right";
-            return this;
-        },
-    
-        margin = function(left, right, top, bottom) {
-            style["margin"] = top + "px " + right + "px " + bottom + "px " + left + "px";
-            return this;
-        },
-    
-        padding = function(left, right, top, bottom) {
-            style["padding"] = top + "px " + right + "px " + bottom + "px " + left + "px";
-            return this;
-        };
-    
-        return {
-            apply: apply,
-            width: width,
-            italics: italics,
-            underline: underline,
-            strikethrough: strikethrough,
-            bold: bold,
-            border: border,
-            fontColour: fontColour ,
-            backgroundColour:  backgroundColour,
-            alignCentre:  alignCentre,
-            alignLeft:  alignLeft,
-            alignRight: alignRight,
-            margin: margin,
-            padding: padding
-        };
     };
 
-    styles = {
-        headScene: css().backgroundColour("#66ccff").apply(),
-        headInstruct: css().backgroundColour("#bfbfbf").apply(),
-        headFate: css().backgroundColour("#cc66ff").apply(),
-        headEvent: css().backgroundColour("#33cc33").apply(),
-        headError: css().backgroundColour("red").apply(),
-        rowMain: css().border(false, false, true).backgroundColour("white").apply(),
-        rowAlt: css().border(false, false, true).backgroundColour("#d9d9d9").apply(),
-        rowHead: css().border(true, true, true).bold(true).alignCentre().apply(),
-        cellBlue: css().fontColour("blue").apply(),
-        cell: css().padding(5, 5, 2, 2).apply(),
-        b: css().bold(true).apply(),
-        i: css().italics(true).apply()
+    /**
+     * Builder class for creating css styles.
+     * @class css
+     */
+    class cssBuilder{
+        // CSS order: top right bottom left
+        
+        /**
+         * Creates an instance of cssBuilder.
+         * @memberof cssBuilder
+         */
+        constructor() {
+            this.style = {};
+        }
+
+        /** 
+         * Resolves the css object.
+         * @return {*} a css data object.
+         * @memberof cssBuilder
+        */
+        apply = function() {
+            return this.style;
+        }
+
+        /** 
+         * Sets the 'width' property
+         * @param {string} val the string value to assign to 'wdith'.
+         * @returns {*} current object for chaining.
+         * @memberof cssBuilder
+        */
+        width = function(val) {
+            this.style["width"] = val;
+            return this;
+        }
+
+        /** 
+         * Sets the 'font-style' property.
+         * @param {bool} val if true, makes italics, otherwise makes normal.
+         * @returns {*} current object for chaining.
+         * @memberof cssBuilder
+        */
+        italics = function(val) {
+            this.style["font-style"] = val ? "italics" : "normal";
+            return this;
+        }
+
+        /** 
+         * Sets the 'font-decoration' property.
+         * @param {bool} val if true, makes underlined, otherwise makes normal.
+         * @returns {*} current object for chaining.
+         * @memberof cssBuilder
+        */
+        underline = function(val) {
+            this.style["text-decoration"] = val ? "underline" : "none";
+            return this;
+        }
+
+        /** 
+         * Sets the 'font-decoration' property.
+         * @param {bool} val if true, makes underlined, otherwise makes normal.
+         * @returns {*} current object for chaining.
+         * @memberof cssBuilder
+        */
+        strikethrough = function(val) {
+            this.style["text-decoration"] = val ? "line-through" : "none";
+            return this;
+        }
+
+        /** 
+         * Sets the 'font-weight' property.
+         * @param {bool} val if true, makes bold, otherwise makes normal.
+         * @returns {*} current object for chaining.
+         * @memberof cssBuilder
+        */
+        bold = function(val) {
+            this.style["font-weight"] = val ? "bold" : "normal";
+            return this;
+        }
+
+        /**
+         * Sets the border related properties.
+         * @param {bool} top whether or not to show a border at the top.
+         * @param {bool} bottom whether or not to show a border at the bottom.
+         * @param {bool} left whether or not to show a border at the left.
+         * @param {bool} right whether or not to show a border at the right.
+         * @returns {*} current object for chaining.
+         * @memberof cssBuilder
+         */
+        border = function(top, bottom, left, right) {
+            const bWidth = "2px ";
+            this.style["border-width"] = (top ? bWidth : "0px ") + (right ?  bWidth : "0px ") + (bottom ?  bWidth : "0px ") + (left ?  bWidth : "0px ");
+            this.style["border-collapse"] = "collapse";
+            this.style["border-color"] = "black";
+            this.style["border-style"] = "solid";
+            return this;
+        }
+
+        /**
+         * Sets the 'color' property.
+         * @param {string} val the colour value.
+         * @returns {*} current object for chaining.
+         * @memberof cssBuilder
+         */
+        fontColour = function(col) {
+            this.style["color"] = col;
+            return this;
+        }
+
+        /**
+         * Sets the 'background-color' property.
+         * @param {string} val the colour value.
+         * @returns {*} current object for chaining.
+         * @memberof cssBuilder
+         */
+        backgroundColour = function(col) {
+            this.style["background-color"] = col;
+            return this;
+        }
+
+        /**
+         * Sets the 'text-align' property to centre.
+         * @returns {*} current object for chaining.
+         * @memberof cssBuilder
+         */
+        alignCentre = function() {
+            this.style["text-align"] = "center";
+            return this;
+        }
+
+        /**
+         * Sets the 'text-align' property to left.
+         * @returns {*} current object for chaining.
+         * @memberof cssBuilder
+         */
+        alignLeft = function() {
+            this.style["text-align"] = "left";
+            return this;
+        }
+
+        /**
+         * Sets the 'text-align' property to right.
+         * @returns {*} current object for chaining.
+         * @memberof cssBuilder
+         */
+        alignRight = function() {
+            this.style["text-align"] = "right";
+            return this;
+        }
+
+        /**
+         * Sets the 'margin' property.
+         * @param {int} top the margin value in pixels.
+         * @param {int} bottom the margin value in pixels.
+         * @param {int} left the margin value in pixels.
+         * @param {int} right the margin value in pixels.
+         * @returns {*} current object for chaining.
+         * @memberof cssBuilder
+         */
+        margin = function(top, bottom, left, right) {
+            this.style["margin"] = top + "px " + right + "px " + bottom + "px " + left + "px";
+            return this;
+        }
+
+        /**
+         * Sets the 'padding' property.
+         * @param {int} top the padding value in pixels.
+         * @param {int} bottom the padding value in pixels.
+         * @param {int} left the padding value in pixels.
+         * @param {int} right the padding value in pixels.
+         * @returns {*} current object for chaining.
+         * @memberof cssBuilder
+         */
+        padding = function(top, bottom, left, right) {
+            this.style["padding"] = top + "px " + right + "px " + bottom + "px " + left + "px";
+            return this;
+        };
+    }
+
+    /**
+     * Builder for constructing html for use in Roll20 messages
+     * @class messageBuilder
+     */
+    class messageBuilder {
+        /**
+         * @constructor
+         * @param {*} style the css style object
+         */
+        constructor(style) {
+            this.styles = style || {};
+            this.data = [];
+            this.html = null;
+        }
+
+        /** Enum used to flag type of tags. selfclose cur */
+        static tagType = { open: 0, close: 1, selfclose: 2 };
+
+        /**
+         * Sets the css styles used by the messageBuilder.
+         * @param {*} styles the css object.
+         */
+        setCSS(styles) {
+            this.styles = styles;
+        }
+
+        /**
+         * Extends the css styles used by the messageBuilder.
+         * @param {*} style the css object. 
+         */
+        addStyles(style) {
+            this.style = {...this.style, ...style };
+        }
+
+        /**
+         * Appends a new html element.
+         * @param {string} tag the tag name (a, table, dive, etc).
+         * @param {string} style a space-delimited string of css style names to apply to the object.
+         * @param {string} contents the innerHTML of the element.
+         * @param {*} attr an object of html attributes to set for the element
+         * @return {*} returns current object for chaining.
+         */
+        addTag(tag, style, contents, attr) {
+            this.html = null;
+            let css = this._getStyleFromClasses(tag + " " + style);
+            this.data.push(this._createElement(tag, messageBuilder.tagType.open, contents, css, attr));
+            return this;
+        }
+        
+        /**
+         * Appends a new html element and immediately closes it.
+         * @param {string} tag the tag name (a, table, dive, etc).
+         * @param {string} contents the innerHTML of the element.
+         * @param {string} style a space-delimited string of css style names to apply to the object.
+         * @param {*} attr an object of html attributes to set for the element
+         * @return {*} returns current object for chaining.
+         */
+        addSingle(tag, contents, style, attr) {
+            return this.addTag(tag, contents, style, attr).closeTag();
+        }
+
+        /**
+         * Appends closing tag/s for element/s already apended
+         * @param {*} until (optional) if provided closes tags until the specifed element. If not provided closes last opened tag.
+         * @return {*} returns current object for chaining.
+         */
+        closeTag(until) {
+            this.html = null;
+            if (until) {
+                let stop = false;
+                let current = false;
+                do {
+                    current = this._getLastOpened();
+                    if (current) {
+                        stop = current.tag == until.toString().trim();
+                        current.closed = true;
+                        this.data.push(this._createElement(current.tag, messageBuilder.tagType.close));
+                    }
+                } while (!stop && current);
+            }
+            else {
+                let current = this._getLastOpened();
+                current.closed = true;
+                this.data.push(this._createElement(current.tag, messageBuilder.tagType.close));
+            }
+            return this;
+        }
+
+        /**
+         * Converts the html data to a string for output to Roll20.
+         * @return {*} \
+         */
+        toString() {
+            if (this.html) {
+                return this.html;
+            }
+            let str = "";
+            this.data.forEach((elem) => {
+                let tag;
+                switch (elem.type) {
+                    case messageBuilder.tagType.open:
+                        tag = "<" + elem.tag;
+                        if (elem.css) {
+                            tag += " " + this._getStyleString(elem.css);
+                        }
+                        if (elem.attr) {
+                            tag += " " + this._getAttrString(elem.attr);
+                        }
+                        tag += ">" + elem.contents;
+                        break;
+                    case messageBuilder.tagType.close:
+                        tag = "</" + elem.tag + ">";
+                        break;
+                    case messageBuilder.tagType.selfclose:
+                        tag = "<" + elem.tag;
+                        if (style) {
+                            tag += this._getStyleString(elem.css);
+                        }
+                        if (elem.attr) {
+                            tag += this._getAttrString(elem.attr);
+                        }
+                        tag += " />" + contents;
+                        break;
+                }
+                str += tag;
+            });
+            return str;
+        }
+
+        /**
+         * Retrieves a css object which is the combination of all styles in the input string.
+         * @private
+         * @param {string} classString a space-delimited string of css style names.
+         * @return {*} a css data object.
+         */
+        _getStyleFromClasses(classString) {
+            let css = {};
+            classString.trim().split(/[ ]+/).forEach((clazz) => {
+                if (!this.styles[clazz]) {
+                    return;
+                }
+                css = { ...css, ...this.styles[clazz] };
+            });
+            return css;
+        }
+
+        /**
+         * Converts css data into a formatted html string
+         * @private
+         * @param {*} cssData a css data object.
+         * @return {string} a string formatted to be used as the 'style' attribute of an HTML element.
+         */
+        _getStyleString(cssData) {
+            let str = "style=\"";
+            let used = false;
+            for (let property of Object.keys(cssData)) {
+                if (cssData.hasOwnProperty(property)) {
+                    str += property + ":" + cssData[property] + "; ";
+                    used = true;
+                }
+            }
+            str = str.trim() + "\"";
+            return used ? str : "";
+        }
+
+        /**
+         * Converts an attribute object into a formatted html string
+         * @private
+         * @param {*} attr an object with properties matching the attributres to set.
+         * @return {string} a string formatted to be used in an HTML element's opening tag.
+         */
+        _getAttrString(attr) {
+            let str = "";
+            let used = false;
+            for (let property of Object.keys(attr)) {
+                if (attr.hasOwnProperty(property)) {
+                    let prop = attr[property].toString().includes(' ') ? "'" + attr[property] + "'" : attr[property];
+                    str += property + "=" + prop + " ";
+                    used = true;
+                }
+            }
+            return used ? str.trimRight() : "";
+        }
+
+        /**
+         * Finds the last html tag that was appened and is not yet closed (FILO).
+         * @private
+         * @return {*} the element data. NULL if no unclosed tag exists.
+         */
+        _getLastOpened() {
+            let elem = null;
+            for (let i = this.data.length - 1; i >= 0; i--) {
+                if (!this.data[i].closed) {
+                    elem = this.data[i];
+                    break;
+                }
+            }
+            return elem;
+        }
+
+        /**
+         * Creates an html element object
+         * @private
+         * @param {string} tag the tag name (a, table, dive, etc).
+         * @param {int} type the messageBuilder.tagType enum value. 
+         * @param {string} contents the innerHTML of the element.
+         * @param {*} css the css data object for the element.
+         * @param {*} attr an object of html attributes to set for the element.
+         * @return {*} the html element data.
+         */
+        _createElement(tag, type, contents, css, attr) {
+            let closed = type != messageBuilder.tagType.open;
+            return {
+                tag: tag.trim().toLowerCase(),
+                type: type,
+                closed: closed,
+                contents: contents ? contents.trim() : "",
+                css: closed ? null : css,
+                attr: attr ? attr : null
+            };
+        }
+    }
+
+    this.styles = {
+        table: new cssBuilder().width("100%").border(true, true, true, true).apply()
+        headScene: new cssBuilder().backgroundColour("#66ccff").apply(),
+        headInstruct: new cssBuilder().backgroundColour("#bfbfbf").apply(),
+        headFate: new cssBuilder().backgroundColour("#cc66ff").apply(),
+        headEvent: new cssBuilder().backgroundColour("#33cc33").apply(),
+        headError: new cssBuilder().backgroundColour("red").apply(),
+        rowMain: new cssBuilder().border(false, false, true, true).backgroundColour("white").apply(),
+        rowAlt: new cssBuilder().border(false, false, true, true).backgroundColour("#d9d9d9").apply(),
+        th: new cssBuilder().border(true, true, true, true).bold(true).alignCentre().apply(),
+        td: new cssBuilder().padding(2, 2, 5, 5).apply(),
+        b: new cssBuilder().bold(true).apply(),
+        i: new cssBuilder().italics(true).apply()
     },
 
     /** Sends a Roll20 Chat message warning that an error has occured loading the script. Bypasses HtmlBuilder for safety. */
