@@ -62,31 +62,71 @@ var GMEmulator = GMEmulator || (function(){
     // Command functions //
     //-------------------//
 
+    startMessage = function() {
+        return new messageBuilder(styles).addTag("table", "table");
+    },
+
+    /**
+     * @param {messageBuilder} msg Builder object
+     * @param {*} fate Roll data
+     */
+    buildFateMessage = function(msg, fate) {
+        return msg
+            .addTag("tr", "thead headFate").addSingle("tr", "th", "Fate" ,{colspan: 2}).closeTag()
+            .addTag("tr", "rowMain").addSingle("td", "b", "Chaos").addSingle("td", "", fate.chaos).closeTag()
+            .addTag("tr", "rowAlt").addSingle("td", "b", "Chance").addSingle("td", "", fate.chanceText).closeTag()
+            .addTag("tr", "rowMain" + (fate.event? " seperate": "")).addSingle("td", "b", "Outcome").addSingle("td", "", "(" + fate.roll + ")" + fate.outcome).closeTag();
+    },
+
+    buildEventMessage = function(msg, event) {
+        return msg
+            .addTag("tr", "thead headEvent").addSingle("td", "th", "Event", {colspan: 2}).closeTag()
+            .addTag("tr", "rowAlt").addSingle("td", "b", "Focus").addSingle("td", "", "(" + fate.event.focusRoll + ") " + fate.event.focusText).closeTag()
+            .addTag("tr", "rowAlt").addSingle("td", "b", "Action").addSingle("td", "", "(" + fate.event.actionRoll + ") " + fate.event.actionText).closeTag()
+            .addTag("tr", "rowAlt").addSingle("td", "b", "Subject").addSingle("td", "", "(" + fate.event.subjectRoll + ") " + fate.event.subjectText).closeTag();
+    },
+
+    buildSceneMessage = function(msg, scene) {
+            return msg
+            .addTag("tr", "thead headScene").addSingle("td", "th", "Scene", {colspan: 2}).closeTag()
+            .addTag("tr", "rowAlt").addSingle("td", "b", "Chaos").addSingle("td", "", scene.chaos).closeTag()
+            .addTag("tr", "rowAlt").addSingle("td", "b", "Roll").addSingle("td", "",  scene.roll).closeTag()
+            .addTag("tr", "rowAlt").addSingle("td", "b", "Outcome").addSingle("td", "", scene.outcome).closeTag();
+    },
+
+    buildChaosMessage = function(msg, chaosLevel, symbol) {
+        return msg.addTag("tr", "centre").addSingle("td", "", "<i>The current Chaos level is </i><span style='color: red'>" + chaosLevel + "</span>" + symbol, {colspan: 2}).closeTag();
+    }
+
     // Page 9
     fateRoll = function(commands) {
         debugLog("fateRoll()");
         const chance = commands[1];
         const fate = generate.fate(chance);
-        const msg = new messageBuilder(styles)
-            .addTag("table", "table")
-                .addTag("thead", "rowHead headScene").addSingle("th", "th", "Scene" ,{colspan: 2}).closeTag()
-                .addTag("tr", "rowMain")
-                    .addSingle("td", "b", "Chaos").addSingle("td", )
+        let msg = startMessage();
+        msg = buildFateMessage(msg, fate);
+       if (fate.event) {
+            msg.addTag("tr", "helpText seperate").addSingle("td", "", "A random event occurs or the situation changes. Use the event below to determine what happenes.", {colspan: 2}).closeTag();
+            msg = buildEventMessage(msg, fate.event);
+        }
         sendMessage(msg);
     },
 
     // Page 14-17
     eventRoll = function(commands) {
         debugLog("eventRoll()");
-        var ev = generate.randomEvent();
-        sendMessage("event", ev);
+        const ev = generate.randomEvent();
+        let msg = startMessage();
+        msg = buildEventMessage(msg, ev).closeTag(true);
+        sendMessage(msg);
     },
 
     // Page 25
     sceneRoll = function(commands) {
         debugLog("sceneRoll()");
-        var scene = generate.scene();
-        sendMessage("scene", scene);
+        const scene = generate.scene();
+        let msg = startMessage();
+        sendMessage(buildSceneMessage(msg, scene).closeTag(true));
     },
 
     // Page 30
@@ -112,7 +152,8 @@ var GMEmulator = GMEmulator || (function(){
             }
             setChaos(newVal);
         }
-        sendChaos(symbol);
+        let msg = startMessage();
+        sendMessage(buildChaosMessage(msg, newVal, symbol));
     },
 
     // Restarts the script
@@ -295,7 +336,7 @@ var GMEmulator = GMEmulator || (function(){
     //----------------//
     generate = (function() {
         // Creates an event
-        var randomEvent = function() {
+        const randomEvent = function() {
             var ev = {
                 rolls: [randomInteger(100), randomInteger(100), randomInteger(100)],
                 focusText: "",
@@ -324,7 +365,7 @@ var GMEmulator = GMEmulator || (function(){
         };
     
         // Creates a scene
-        var scene = function() {
+        const scene = function() {
             var scene = {
                 roll: 0,
                 outcome: "",
@@ -353,7 +394,7 @@ var GMEmulator = GMEmulator || (function(){
         };
 
         // Creates a fate result
-        var fate = function(chance) {
+        const fate = function(chance) {
             var fate = {
                 roll: randomInteger(100),
                 chance: chance,
@@ -373,6 +414,7 @@ var GMEmulator = GMEmulator || (function(){
             }
             return fate;
         };
+
         return {
             fate: fate,
             randomEvent: randomEvent,
@@ -651,7 +693,12 @@ var GMEmulator = GMEmulator || (function(){
     // Display functions //
     //-------------------//
     sendMessage = function(msg) {
-        sendChat(getDisplayName(), msg);
+        if (typeof(msg) == messageBuilder) {
+            sendChat(getDisplayName(), msg.closeTag(true).toString());
+        }
+        else {
+            sendChat(getDisplayName(), msg);
+        }
     };
 
     /**
@@ -1066,12 +1113,15 @@ var GMEmulator = GMEmulator || (function(){
         headFate: new cssBuilder().backgroundColour("#cc66ff").apply(),
         headEvent: new cssBuilder().backgroundColour("#33cc33").apply(),
         headError: new cssBuilder().backgroundColour("red").apply(),
-        rowMain: new cssBuilder().border(false, false, true, true).backgroundColour("white").apply(),
-        rowAlt: new cssBuilder().border(false, false, true, true).backgroundColour("#d9d9d9").apply(),
+        rowMain: new cssBuilder().backgroundColour("white").apply(),
+        rowAlt: new cssBuilder().backgroundColour("#d9d9d9").apply(),
+        helpText: new cssBuilder().alignCentre().italics(true).backgroundColour("white"),
         th: new cssBuilder().border(true, true, true, true).bold(true).alignCentre().apply(),
         td: new cssBuilder().padding(2, 2, 5, 5).apply(),
+        centre: new cssBuilder().alignCentre().apply(),
         b: new cssBuilder().bold(true).apply(),
-        i: new cssBuilder().italics(true).apply()
+        i: new cssBuilder().italics(true).apply(),
+        seperate: new cssBuilder().border(false, true, false, false).apply()
     },
 
     /** Sends a Roll20 Chat message warning that an error has occured loading the script. Bypasses HtmlBuilder for safety. */
