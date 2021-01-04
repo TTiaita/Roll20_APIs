@@ -224,8 +224,8 @@ class messageBuilder {
         if (style && style.toString().length > 0) {
             styleList += " " + style;
         }
-        let css = this._getStyleFromClasses(stlyeList);
-        this.data.push(this._createElement(tag, messageBuilder.tagType.open, contents, css, attr));
+        let css = this._getStyleFromClasses(styleList);
+        this.data.push(this._createElement(tag, messageBuilder.tagType.open, contents.toString(), css, attr));
         return this;
     }
     
@@ -237,8 +237,8 @@ class messageBuilder {
      * @param {*} attr an object of html attributes to set for the element
      * @return {*} returns current object for chaining.
      */
-    addSingle(tag, contents, style, attr) {
-        return this.addTag(tag, contents, style, attr).closeTag();
+    addSingle(tag, style, contents, attr) {
+        return this.addTag(tag, style, contents, attr).closeTag();
     }
 
     /**
@@ -317,13 +317,15 @@ class messageBuilder {
      */
     _getStyleFromClasses(classString) {
         let css = {};
+        let used = false;
         classString.trim().split(/[ ]+/).forEach((clazz) => {
             if (!this.styles[clazz]) {
                 return;
             }
             css = { ...css, ...this.styles[clazz] };
+            used = true;
         });
-        return css;
+        return used ? css : null;
     }
 
     /**
@@ -402,6 +404,7 @@ class messageBuilder {
         };
     }
 }
+
 
 /* Example:
 

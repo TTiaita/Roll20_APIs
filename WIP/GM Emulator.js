@@ -62,57 +62,19 @@ var GMEmulator = GMEmulator || (function(){
     // Command functions //
     //-------------------//
 
-    startMessage = function() {
-        return new messageBuilder(styles).addTag("table", "table");
-    },
-
-    /**
-     * @param {messageBuilder} msg Builder object
-     * @param {*} fate Roll data
-     */
-    buildFateMessage = function(msg, fate) {
-        return msg
-            .addTag("tr", "thead headFate").addSingle("tr", "th", "Fate" ,{colspan: 2}).closeTag()
-            .addTag("tr", "rowMain").addSingle("td", "b", "Chaos").addSingle("td", "", fate.chaos).closeTag()
-            .addTag("tr", "rowAlt").addSingle("td", "b", "Chance").addSingle("td", "", fate.chanceText).closeTag()
-            .addTag("tr", "rowMain" + (fate.event? " seperate": "")).addSingle("td", "b", "Outcome").addSingle("td", "", "(" + fate.roll + ")" + fate.outcome).closeTag();
-    },
-
-    buildEventMessage = function(msg, event) {
-        return msg
-            .addTag("tr", "thead headEvent").addSingle("td", "th", "Event", {colspan: 2}).closeTag()
-            .addTag("tr", "rowAlt").addSingle("td", "b", "Focus").addSingle("td", "", "(" + fate.event.focusRoll + ") " + fate.event.focusText).closeTag()
-            .addTag("tr", "rowAlt").addSingle("td", "b", "Action").addSingle("td", "", "(" + fate.event.actionRoll + ") " + fate.event.actionText).closeTag()
-            .addTag("tr", "rowAlt").addSingle("td", "b", "Subject").addSingle("td", "", "(" + fate.event.subjectRoll + ") " + fate.event.subjectText).closeTag();
-    },
-
-    buildSceneMessage = function(msg, scene) {
-            return msg
-            .addTag("tr", "thead headScene").addSingle("td", "th", "Scene", {colspan: 2}).closeTag()
-            .addTag("tr", "rowAlt").addSingle("td", "b", "Chaos").addSingle("td", "", scene.chaos).closeTag()
-            .addTag("tr", "rowAlt").addSingle("td", "b", "Roll").addSingle("td", "",  scene.roll).closeTag()
-            .addTag("tr", "rowAlt").addSingle("td", "b", "Outcome").addSingle("td", "", scene.outcome).closeTag();
-    },
-
-    buildChaosMessage = function(msg, chaosLevel, symbol) {
-        return msg.addTag("tr", "centre").addSingle("td", "", "<i>The current Chaos level is </i><span style='color: red'>" + chaosLevel + "</span>" + symbol, {colspan: 2}).closeTag();
-    }
-
-    // Page 9
     fateRoll = function(commands) {
         debugLog("fateRoll()");
         const chance = commands[1];
         const fate = generate.fate(chance);
         let msg = startMessage();
-        msg = buildFateMessage(msg, fate);
+        buildFateMessage(msg, fate);
        if (fate.event) {
-            msg.addTag("tr", "helpText seperate").addSingle("td", "", "A random event occurs or the situation changes. Use the event below to determine what happenes.", {colspan: 2}).closeTag();
-            msg = buildEventMessage(msg, fate.event);
+            buildHelpMessage(msg, "A random event occurs or the situation changes. Use the event below to determine what happenes.");
+            buildEventMessage(msg, fate.event);
         }
         sendMessage(msg);
     },
 
-    // Page 14-17
     eventRoll = function(commands) {
         debugLog("eventRoll()");
         const ev = generate.randomEvent();
@@ -121,19 +83,29 @@ var GMEmulator = GMEmulator || (function(){
         sendMessage(msg);
     },
 
-    // Page 25
     sceneRoll = function(commands) {
         debugLog("sceneRoll()");
         const scene = generate.scene();
         let msg = startMessage();
-        sendMessage(buildSceneMessage(msg, scene).closeTag(true));
+        buildSceneMessage(msg, scene);
+        if (scene.interrupt) {
+            buildHelpMessage(msg, "The next scene is not what you expected. Use the event below to determine what happens instead.");
+            buildEventMessage(msg, scene.event);
+        }
+        else if (scene.modified) {
+            buildHelpMessage(msg, "The scene is altered. Think of how the scene is different than expected. Consult [Fate](&#13;#gme_fate) if you need to.");
+        }
+        else {
+            buildHelpMessage(msg, "The scene begins as you envisioned it.");
+        }
+        sendMessage(msg);
     },
 
-    // Page 30
     modChaos = function(commands) {
-        var symbol = "";
+        let symbol = "";
+        const msg = startMessage();
+        let newVal = 5;
         if (commands.length == 2) {
-            var newVal = 5;
             switch (commands[1]) {
                 case "+":
                     newVal = Math.min(9, StateHandler.read(moduleName, storedChaosKey) + 1);
@@ -147,12 +119,11 @@ var GMEmulator = GMEmulator || (function(){
                     newVal = 5;
                     break;
                 default:
-                    sendMessage("error", getDisplayName(), "!chaos only accepts '+', '-', or 'reset' as its argument");
+                    sendMessage(buildErrorMessage(msg, "!chaos only accepts '+', '-', or 'reset' as its argument"));
                     return;
             }
             setChaos(newVal);
         }
-        let msg = startMessage();
         sendMessage(buildChaosMessage(msg, newVal, symbol));
     },
 
@@ -165,7 +136,7 @@ var GMEmulator = GMEmulator || (function(){
     // Debug: Deletes all stored data and resets them to default values
     forceDeleteData = function(commands) {
         log("Force delete");
-        init.storedDate(true);
+        init.storedData(true);
         init.runAll(true);
     },
 
@@ -180,35 +151,32 @@ var GMEmulator = GMEmulator || (function(){
 
     // Debug: Sends an error message to demo the Formatter.ErrorBox function
     testError = function(commands) {
-        sendMessage("error", "This is a test. <a href='!testerror'>Again</a>");
+        let msg = startMessage();
+        sendMessage(buildErrorMessage(msg, "An error occured."));
     },
 
-    // Debug: Sends a scene message to demo the Formatter.SceneInfo function
-    testScene = function(commands) {
-        var scene = generate.scene();
-        sendMessage("scene", scene);
-    },
-
-    // Debug: Sends a note to demo the Formatter.NoteBox function
     testNote = function(commands) {
-        sendMessage("note", "This is a test");
+        let msg = startMessage();
+        buildTitleMessage(msg, "Note");
+        sendMessage(buildHelpMessage(msg, "The note contents are here."));
     },
 
-    // Debug: Sends a fate roll message to demo the Formatter.FateRoll function
-    testFate = function(commands) {
-        var fate = generate.fate(5);
-        sendMessage("fate", fate);
-    },
-
-    // Debug: Sends an even message to demo the Formatter.EventInfo function
-    testEvent = function(commands) {
-        var ev = generate.randomEvent();
-        sendMessage("event", ev);
+    testContinue = function(commands) {
+        let msg = startMessage();
+        buildContinueMessage(msg);
+        sendMessage(msg);
     },
 
     // Debug: Sends a message containing test API buttons
     testButtons = function(commands) {
-        sendChat(getDisplayName(), "Test functions:\n<a href=\"!testerror\">html error</a>\n[Note](!testnote)\n[Event](!testevent)\n[Scene](!testscene)\n[Fate](!testfate)");
+        sendChat(getDisplayName(), "Test functions:\n<a href=\"!testerror\">error</a>\n[Note](!testnote)\n[Event](!gme_event)\n[Scene](!gme_scene)\n[Fate](!gme_fate)");
+    },
+
+    testChoice = function(commands) {
+        let msg = startMessage();
+        buildChoiceMessage(msg, "Is this working?", [["Yes", "!yes"], ["No", "!no"], ["Kinda", "!kinda"], ["sorta", "!sorta"], ["Maybe?", "!maybe"]])
+        log(msg.closeTag(true).toString());
+        sendMessage(msg);
     },
 
     // Debug: Shows current debug status
@@ -216,120 +184,15 @@ var GMEmulator = GMEmulator || (function(){
         sendChat("API", "Debug = " + getDebug());
     },
 
-    /*
-    startScene = function(commands) {
-        debugLog("startScene()");
-        if (sceneRunning && commands.length == 1) {
-            sendMessage("error", "A new scene cannot be started while one is running.<br />[End current scene.](!gme_endscene)");
-        }
-        else {
-            if (commands.length == 1) {
-                debugLog("startScene() BeginNew");
-                var scene = generate.scene();
-                currentScene = { data: scene, desc: false, end: false, chaos: false };
-                var msg = Formatter.instruction("Beginning new scene...");
-                if (scene.interrupt) {
-                    msg += Formatter.noteBox("[Click here to continue](!gme_startscene interrupt) INTERRUPT");
-                }
-                else {
-                    //msg += Formatter.noteBox("[Click here to continue](!&#13;#AddSceneDesc)");
-                    msg += Formatter.noteBox("[Click here to continue](!gme_startscene normal)" + (currentScene.data.modified ? " ALTERED" : ""));
-                }
-                sendMessage("custom", msg);
-                sceneRunning = true;
-            }
-            else if (commands.length == 2) {
-                switch (commands[1].trim().toLowerCase()) {
-                    case "interrupt":
-                        debugLog("startScene() Describe (Interrupt)");
-                        var msg = Formatter.sceneInfo(currentScene.data);
-                        msg += Formatter.noteBox("The scene is interrupted! Use the event below to determine what happens instead.", true);
-                        msg += Formatter.eventInfo(currentScene.data.event);
-                        msg += Formatter.noteBox("[Click here to continue](!&#13;#AddSceneDesc)");
-                        sendChat(getDisplayName(), msg);
-                        break;
-                    case "normal":
-                        debugLog("startScene() Describe(Normal)");
-                        var msg = Formatter.sceneInfo(currentScene.data);
-                        if (currentScene.data.modified) {
-                            msg += Formatter.noteBox("The scene is altered. Think of what is different than expected. Consult [Fate](!&#13;#Fate) if needed.", true);
-                        }
-                        else {
-                            msg += Formatter.noteBox("The scene proceeds as you expected.", true);
-                        }
-                        msg += Formatter.noteBox("[Click here to continue](!&#13;#AddSceneDesc)");
-                        sendChat(getDisplayName(), msg);
-                        break;
-                }
-            }
-            else {
-                switch (commands[1].toLowerCase()) {
-                    case "desc":
-                        debugLog("startScene() StartPlay");
-                        currentScene.desc = commands[2].replace(lookup.symbol.stringStart, "").replace(lookup.symbol.stringEnd, "");
-                        log("desc: " + currentScene.desc);
-                        var msg = Formatter.instruction("The scene begins...");
-                        msg += Formatter.noteBox(currentScene.desc, true);
-                        msg += Formatter.chaosBox(getChaos(), null, true);
-                        msg += Formatter.noteBox("Run !gme_endscene or click [here](!gme_endscene) when the scene is over.");
-                        log(msg);
-                        sendMessage("custom", msg);
-                        break;
-                }
-            }
-        }
+    testInput = function(commands) {
+        let msg = startMessage();
+        sendMessage(buildInputMessage(msg, "Please add a description of the scene."));
     },
 
-    endScene = function(commands) {
-        if (sceneRunning) {
-            if (!currentScene.end && commands.length == 1) {
-                log("endScene() Entry");
-                var msg = Formatter.instruction("Ending scene...");
-                msg += Formatter.noteBox("[Click here to continue](!&#13;#EndSceneDesc)");
-                sendMessage("custom", msg);
-            }
-            else if (commands.length == 2) {
+    userInput = function(commands) {
 
-            }
-            else if (commands.length == 3) {
-                switch (commands[1].toLowerCase()) {
-                    case "desc":
-                        debugLog("endScene() EndDesc");
-                        currentScene.end = commands[2].replace(lookup.symbol.stringStart, "").replace(lookup.symbol.stringEnd, "");
-                        log("end: " + currentScene.end);
-                        var msg = Formatter.instruction("The scene");
-                        msg += Formatter.sceneInfo(currentScene.data);
-                        msg += Formatter.noteBox("<i>The setup:</i><br>" + currentScene.desc, true);
-                        msg += Formatter.noteBox("<i>The conclusion:</i><br>" + currentScene.end, true);
-                        msg += Formatter.choice("Were the PCs in control for most of the scene?", [["Yes", "!gme_endscene chaos -"], ["No", "!gme_endscene chaos +"]]);
-                        log(msg);
-                        sendMessage("custom", msg);
-                        break;
-                    case "chaos":
-                        Log("endScene() Chaos");
-                        currentScene.setChaos( commands[2]);
-                        var symbol = "";
-                        if (commands[2] === "+") {
-                            setChaos( Math.min(9, getChaos() + 1));
-                            symbol = lookup.symbol.upMarker;
-                        }
-                        else {
-                            setChaos(Math.max(1, getChaos() - 1));
-                            symbol = lookup.symbol.downMarker;
-                        }
-                        var msg = Formatter.getChaos() + Formatter.chaosBox(getChaos(), symbol, true);
-                        msg += Formatter.instruction("Scene over");
-                        msg += Formatter.choice("Do you want to review your lists before continuing?", [["Yes", ""], ["No", ""]]);
-                        sendMessage("custom", msg);
-                        break;
-                }
-            }
-        }
-        else {
-            sendMessage("error", "No scene is currently running. Use [!gme_startscene] to begin one.");
-        }
     },
-    //*/
+
 
     //----------------//
     // Roll Functions //
@@ -376,16 +239,16 @@ var GMEmulator = GMEmulator || (function(){
             }
 
             scene.roll = randomInteger(10);
-            if (scene.roll > scene.getChaos()) {
-                scene.outcome = "Scene begins as expected";
+            if (scene.roll > scene.chaos) {
+                scene.outcome = "As expected";
             }
             else {
                 if (scene.roll % 2 == 0) {
-                    scene.outcome = "Scene is modified."
+                    scene.outcome = "Altered"
                     scene.modified = true;
                 }
                 else {
-                    scene.outcome = "Scene is interrupted."
+                    scene.outcome = "Interrupted!"
                     scene.interrupt = true;
                     scene.event = generate.randomEvent();
                 }
@@ -487,7 +350,7 @@ var GMEmulator = GMEmulator || (function(){
         },
 
         // Initialises the state global object
-        storedDate = function(force) {
+        storedData = function(force) {
             if (!StateHandler.moduleExists(moduleName) || force) {
                 // Sets up the expected keys-values
                 var defaults = [
@@ -523,6 +386,7 @@ var GMEmulator = GMEmulator || (function(){
             // Used for automatic mode
             manageMacro("AddSceneDesc", "!gme_startscene desc " + lookup.symbol.stringStart + "?{Add a description of the scene}" + lookup.symbol.stringEnd, gm.id);
             manageMacro("EndSceneDesc", "!gme_endscene desc " + lookup.symbol.stringStart + "?{How was the scene concluded?}" + lookup.symbol.stringEnd, gm.id);
+            manageMacro("gme_input", "!gme_input " + lookup.symbol.stringStart + "?{Input}" + lookup.symbol.stringEnd, gm.id);
         },
 
         // Registers all commands
@@ -538,8 +402,9 @@ var GMEmulator = GMEmulator || (function(){
             registerCommand("!gme_reload", reload, 1, 1);
 
             // Commands for automated use
-            registerCommand("!gme_startscene", startScene, 1, 3);
-            registerCommand("!gme_endscene", endScene, 1, 3);
+            //registerCommand("!gme_startscene", startScene, 1, 3);
+            //registerCommand("!gme_endscene", endScene, 1, 3);
+            registerCommand("!gme_input", userInput, 1, 2);
 
             // Commands only used for debugging
             registerCommand("!gme_debug", toggleDebug, 1, 1);
@@ -548,9 +413,9 @@ var GMEmulator = GMEmulator || (function(){
             if (getDebug()) {
                 registerCommand("!testerror", testError, 1, 1);
                 registerCommand("!testnote", testNote, 1, 1);
-                registerCommand("!testscene", testScene, 1, 2);
-                registerCommand("!testevent", testEvent, 1, 1);
-                registerCommand("!testfate", testFate, 1, 1);
+                registerCommand("!testchoice", testChoice, 1, 1);
+                registerCommand("!testcontinue", testContinue, 1, 1);
+                registerCommand("!testinput", testInput, 1, 1);
                 registerCommand("!testbuttons", testButtons, 1, 1);
             }
 
@@ -567,10 +432,11 @@ var GMEmulator = GMEmulator || (function(){
 
         // Runs all initialisation functions
         runAll = function(isReload) {
-            sendChat("API", Formatter.noteBox("<i>GM Emulator</i> is initialising."));
+            let msg = startMessage();
+            sendMessage(buildHelpMessage(msg, "<i>GM Emulator</i> is initialising."));
 
-            storedDate(false);
             flags();
+            storedData(false);
             lookups();
             macros();
             commands();
@@ -579,10 +445,12 @@ var GMEmulator = GMEmulator || (function(){
             }
 
             if (errorred) {
-                sendChat("API", Formatter.errorBox("Setup Error", "An unrecoverable error occurred during set up. Please restart the API script."));
+                msg = startMessage();
+                sendMessage(buildErrorMessage(msg, "An unrecoverable error occurred during set up. Please restart the API script."));
             }
             else {
-                sendChat("API", Formatter.noteBox("<i>GM Emulator</i> is now ready for use."));
+                msg = startMessage();
+                sendMessage(buildHelpMessage(msg, "<i>GM Emulator</i> is now ready for use."));
                 ready = true;
             }
         };
@@ -664,7 +532,7 @@ var GMEmulator = GMEmulator || (function(){
         else if (!error && action.length != 1) { error = "The 'action' function must take only one parameter (the string[] commands)." }
 
         if (error) {
-            sendMessage("error", getDisplayName(), "Cannot Initialise command '" + commandText + "'. " + error);
+            sendChat("error", "Cannot Initialise command '" + commandText + "'. " + error);
             errorred = true;
             return;
         }
@@ -692,12 +560,12 @@ var GMEmulator = GMEmulator || (function(){
     //-------------------//
     // Display functions //
     //-------------------//
-    sendMessage = function(msg) {
-        if (typeof(msg) == messageBuilder) {
-            sendChat(getDisplayName(), msg.closeTag(true).toString());
+    sendMessage = function(msg, archive) {
+        if (msg instanceof messageBuilder) {
+            sendChat(getDisplayName(), msg.closeTag(true).toString(), null, archive ? {noarchive: true} : null);
         }
         else {
-            sendChat(getDisplayName(), msg);
+            sendChat(getDisplayName(), msg, null, archive ? {noarchive: true} : null);
         }
     };
 
@@ -927,8 +795,8 @@ var GMEmulator = GMEmulator || (function(){
             if (style && style.toString().length > 0) {
                 styleList += " " + style;
             }
-            let css = this._getStyleFromClasses(stlyeList);
-            this.data.push(this._createElement(tag, messageBuilder.tagType.open, contents, css, attr));
+            let css = this._getStyleFromClasses(styleList);
+            this.data.push(this._createElement(tag, messageBuilder.tagType.open, contents ? contents.toString() : "", css, attr));
             return this;
         }
         
@@ -940,8 +808,8 @@ var GMEmulator = GMEmulator || (function(){
          * @param {*} attr an object of html attributes to set for the element
          * @return {*} returns current object for chaining.
          */
-        addSingle(tag, contents, style, attr) {
-            return this.addTag(tag, contents, style, attr).closeTag();
+        addSingle(tag, style, contents, attr) {
+            return this.addTag(tag, style, contents, attr).closeTag();
         }
 
         /**
@@ -1020,13 +888,15 @@ var GMEmulator = GMEmulator || (function(){
          */
         _getStyleFromClasses(classString) {
             let css = {};
+            let used = false;
             classString.trim().split(/[ ]+/).forEach((clazz) => {
                 if (!this.styles[clazz]) {
                     return;
                 }
                 css = { ...css, ...this.styles[clazz] };
+                used = true;
             });
-            return css;
+            return used ? css : null;
         }
 
         /**
@@ -1106,71 +976,240 @@ var GMEmulator = GMEmulator || (function(){
         }
     }
 
-    this.styles = {
-        table: new cssBuilder().width("100%").border(true, true, true, true).apply(),
+    var styles = {
+        table: new cssBuilder().width("100%").border(true, true, true, true).backgroundColour("white").apply(),
         headScene: new cssBuilder().backgroundColour("#66ccff").apply(),
         headInstruct: new cssBuilder().backgroundColour("#bfbfbf").apply(),
         headFate: new cssBuilder().backgroundColour("#cc66ff").apply(),
         headEvent: new cssBuilder().backgroundColour("#33cc33").apply(),
         headError: new cssBuilder().backgroundColour("red").apply(),
+        headInput: new cssBuilder().backgroundColour("#66ffcc").apply(),
         rowMain: new cssBuilder().backgroundColour("white").apply(),
         rowAlt: new cssBuilder().backgroundColour("#d9d9d9").apply(),
-        helpText: new cssBuilder().alignCentre().italics(true).backgroundColour("white"),
-        th: new cssBuilder().border(true, true, true, true).bold(true).alignCentre().apply(),
+        helpText: new cssBuilder().alignCentre().italics(true).backgroundColour("white").apply(),
+        thead: new cssBuilder().border(true, true, true, true).bold(true).alignCentre().apply(),
         td: new cssBuilder().padding(2, 2, 5, 5).apply(),
         centre: new cssBuilder().alignCentre().apply(),
         b: new cssBuilder().bold(true).apply(),
         i: new cssBuilder().italics(true).apply(),
-        seperate: new cssBuilder().border(false, true, false, false).apply()
+        seperate: new cssBuilder().border(false, true, false, false).apply(),
+        bordered: new cssBuilder().border(true, true, true, true).apply()
     },
 
-    /** Sends a Roll20 Chat message warning that an error has occured loading the script. Bypasses HtmlBuilder for safety. */
-    sendUnloadedError = function() {
-        sendMessage("<table style=\"width: 100%; border-width: 2px 2px 2px 2px ; border-collapse: collapse; border-color: black; border-style: solid; color: black;\"><thead style=\"\"><th style=\"background-color: red;\">Error<tbody style=\"\"><tr style=\"border-width: 0px 2px 0px 2px ; border-collapse: collapse; border-color: black; border-style: solid; background-color: white;\"><td style=\"padding: 2px 5px 2px 5px;\">An unrecoverable error occurred during set up. Please restart the API script.</td></tr></tbody></th></thead></table>");
+    /**
+     * Begins a new message formatter.
+     * @returns {messageBuilder}
+     */
+    startMessage = function() {
+        return new messageBuilder(styles).addTag("table", "table").addTag("tbody");
     },
-    
-    /** Sends a Roll20 Chat message warning that the script is not finished initialising. Bypasses HtmlBuilder for safetty. */
-    sendUnloadedWait = function() {
-        sendMessage("<table style=\"width: 100%; border-width: 2px 2px 2px 2px ; border-collapse: collapse; border-color: black; border-style: solid; color: black;\"><tr style=\"border-width: 0px 2px 0px 2px ; border-collapse: collapse; border-color: black; border-style: solid; background-color: white;\"><td style=\"padding: 2px 5px 2px 5px;\">API script <i>Game Master Emulator</i> is still loading. Please wait.</td></tr></table>");
-    }
+
+    /**
+     * Adds a formatted Fate Result to the message.
+     * @param {messageBuilder} msg Message object
+     * @param {*} fate Fate data
+     * @returns {messageBuilder}
+     */
+    buildFateMessage = function(msg, fate) {
+        return msg
+            .addTag("tr", "thead headFate").addSingle("tr", "", "Fate" ,{colspan: 2}).closeTag()
+            .addTag("tr", "rowMain").addSingle("td", "b", "Chaos").addSingle("td", "", fate.chaos).closeTag()
+            .addTag("tr", "rowAlt").addSingle("td", "b", "Chance").addSingle("td", "", fate.chanceText).closeTag()
+            .addTag("tr", "rowMain" + (fate.event? " seperate": "")).addSingle("td", "b", "Outcome").addSingle("td", "", "(" + fate.roll + ")" + fate.outcome).closeTag();
+    },
+
+    /**
+     * Adds a formatted Event Result to the message.
+     * @param {messageBuilder} msg Message object
+     * @param {*} event Event data
+     * @returns {messageBuilder}
+     */
+    buildEventMessage = function(msg, ev) {
+        return msg
+            .addTag("tr", "thead headEvent").addSingle("td", "", "Event", {colspan: 2}).closeTag()
+            .addTag("tr", "rowMain").addSingle("td", "b", "Focus").addSingle("td", "", "(" + ev.focusRoll + ") " + ev.focusText).closeTag()
+            .addTag("tr", "rowAlt").addSingle("td", "b", "Action").addSingle("td", "", "(" + ev.actionRoll + ") " + ev.actionText).closeTag()
+            .addTag("tr", "rowMain").addSingle("td", "b", "Subject").addSingle("td", "", "(" + ev.subjectRoll + ") " + ev.subjectText).closeTag();
+    },
+
+    /**
+     * Adds a formatted Scene Result to the message.
+     * @param {messageBuilder} msg Message object
+     * @param {*} scene Scene data
+     * @returns {messageBuilder}
+     */
+    buildSceneMessage = function(msg, scene) {
+            return msg
+            .addTag("tr", "thead headScene").addSingle("td", "", "Scene", {colspan: 2}).closeTag()
+            .addTag("tr", "rowMain").addSingle("td", "b", "Chaos").addSingle("td", "", scene.chaos).closeTag()
+            .addTag("tr", "rowAlt").addSingle("td", "b", "Roll").addSingle("td", "",  scene.roll).closeTag()
+            .addTag("tr", "rowMain").addSingle("td", "b", "Outcome").addSingle("td", "", scene.outcome).closeTag();
+    },
+
+    /**
+     * Adds a formatted Chaos Report to the message.
+     * @param {messageBuilder} msg Message object.
+     * @param {int} chaosLevel The chaos amount to report.
+     * @param {string} symbol The symbol, if any, to add to the chaos number.
+     * @returns {messageBuilder}
+     */
+    buildChaosMessage = function(msg, chaosLevel, symbol) {
+        return msg.addTag("tr", "centre")
+            .addSingle("td", "", "<i>The current Chaos level is </i><span style='font-weight: bold; color: red'>" + chaosLevel + "</span>" + symbol, {colspan: 2}).closeTag();
+    },
+
+    /**
+     * Adds a formatted user selection to the message.
+     * @param {messageBuilder} msg Message object.
+     * @param {string} question The text to display.
+     * @param {Array} options An array of [string, string] arrays storing the options, where the first is the display name, and the second the action. 
+     * @returns {messageBuilder}
+     */
+    buildChoiceMessage = function(msg, question, options) {
+        msg
+            .addTag("tr", "thead headInput").addSingle("td", "", "Input required", { colspan: 2}).closeTag()
+            .addTag("tr", "centre seperate").addSingle("td", "", question, { colspan: 2}).closeTag();
+        for (let i = 0; i < options.length; i++) {
+            let opt = options[i];
+            // Displays two buttons per row
+            if(i % 2 == 0) {
+                msg.addTag("tr", "rowAlt");
+            }
+            msg.addSingle("td", "centre", "[" + opt[0] + "](" + opt[1] + ")");
+            if(i % 2 == 1) {
+                msg.closeTag();
+            } else if (i == options.length - 1) {
+                msg.addSingle("td");
+            }
+        }
+        return msg;
+    },
+
+    buildInputMessage = function(msg, instruction) {
+        return msg
+            .addTag("tr", "thead headInput").addSingle("td", "", "Input required", { colspan: 2}).closeTag()
+            .addTag("tr", "centre seperate").addSingle("td", "", instruction, { colspan: 2}).closeTag()
+            .addTag("tr", "bordered centre").addSingle("td", "", "[Click here](!&#13;#gme_input)", {colspan: 2}).closeTag();
+    },
+
+    /**
+     * Adds a 'Click here to continue' buttons to the message.
+     * @param {messageBuilder} msg Message object.
+     * @returns {messageBuilder}
+     */
+    buildContinueMessage = function(msg) {
+        return msg.addTag("tr", "bordered centre").addSingle("td", "", "[Click here to continue](!gme_input " + lookup.symbol.stringStart + "Continue" + lookup.symbol.stringEnd + ")", {colspan: 2}).closeTag();
+    },
+
+    /**
+     * Adds a formatted Error to the message.
+     * @param {messageBuilder} msg Message object.
+     * @param {string} err The error text to display.
+     * @returns {messageBuilder}
+     */
+    buildErrorMessage = function(msg, err) {
+        return msg
+            .addTag("tr", "thead headError").addSingle("td", "", "Error", {colspan: 2}).closeTag()
+            .addTag("tr").addSingle("td", "", err, {colspan: 2}).closeTag();
+    },
+
+    /**
+     * Adds a formatted Help Box to the message.
+     * @param {messageBuilder} msg Message object.
+     * @param {string} err The error text to display.
+     * @returns {messageBuilder}
+     */
+    buildHelpMessage = function(msg, text) {
+        return msg.addTag("tr", "helpText bordered").addSingle("td", "", text, {colspan: 2}).closeTag();
+    },
+
+    /**
+     * Adds a formatted header to the message.
+     * @param {messageBuilder} msg Message object.
+     * @param {string} text The text to display.
+     * @returns {messageBuilder}
+     */
+    buildTitleMessage = function(msg, text) {
+        return msg.addTag("tr", "thead headInstruct").addSingle("td", "", text, {colspan: 2}).closeTag();
+    },
+
     //----------------//
     // Event Handlers //
     //----------------//
     handleInput = function(msg) {
         if (msg.type == "api") {
             var target = msg.who;
-            
             var cmds = msg.content.trim().split(/[ ]+(?![^⌈]*⌉)/g);
 
             if (commandList.has(cmds[0])) {
                 // Block commands unless everything is ready
                 if (errorred) {
-                    sendUnloadedError();
+                    let m = startMessage();
+                    sendMessage(buildErrorMessage(m, "An unrecoverable error occurred during set up. Please restart the API script."));
+                    log("ready: " + ready);
                     return;
                 }
                 else if (!ready) {
-                    sendUnloadedWait();
+                    let m = startMessage();
+                    sendMessage(buildHelpMessage(m, "GME is still loading. Please wait."));
                     return;
                 }
 
                 var commandObj = commandList.get(cmds[0])
                 debugLog("CommandObject:" + cmds[0]);
                 if (!argCheck(cmds, commandObj.MinArgs, commandObj.MaxArgs)) {
-                    sendMessage("error", "Command '" + cmds[0] + "' requires a minimum of " + commandObj.MinArgs + " arguments and a maximum of " + commandObj.MaxArgs + ".");
+                    let msg = startMessage();
+                    sendMessage(buildErrorMessage("Command '" + cmds[0] + "' requires a minimum of " + commandObj.MinArgs + " arguments and a maximum of " + commandObj.MaxArgs + "."));
                     return;
                 }
 
                 commandObj.Action.call(this, cmds)
             }
-
             // If no matching command is found then it is ignored by this code.
         }
     };
+
+    return { init: init.runAll };
 }());
-
-
 
 // Initialise on script load
 on("ready", function () {
-    GMEmulator.init.runAll(false);
+    sendChat("", "-----------------------");
+    GMEmulator.init(false);
 });
+
+
+
+
+class StateHandler {
+    // Returns the stored value or null if module or key do not exist
+    static read(module, key) {
+        if (this.moduleExists(module) && this.keyExists(module, key)) {
+            return state[module.toLowerCase()][key.toLowerCase()];
+        }
+        return null;
+    }
+
+    // Creates or updates the stored value
+    static write(module, key, value) {
+        this.initModule(module)
+        state[module.toLowerCase()][key.toLowerCase()] = value;
+    }
+
+    // Creates a module if it does not already exist
+    static initModule(module) {
+        if (!this.moduleExists(module.toLowerCase())) {
+            state[module.toLowerCase()] = {};
+        }
+    }
+
+    // Returns true if the specified module exists
+    static moduleExists(module) {
+        return state.hasOwnProperty(module.toLowerCase());
+    }
+
+    // Returns true if the specified module and key exists
+    static keyExists(module, key) {
+        return this.moduleExists && state[module.toLowerCase()].hasOwnProperty(key.toLowerCase());
+    }
+}
