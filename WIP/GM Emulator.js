@@ -5,569 +5,6 @@
 
 var GMEmulator = GMEmulator || (function(){
     "use strict";
-    // State variables
-    var ready = false,      // Var to block use until loaded
-    errorred = false,       // Var to block use due to un-resolvable errors
-    sceneRunning = false,   // Var indicating that a scene is happening 
-
-    control = {
-        modes: { 
-            passive: 0,     // Emulator is acting as a random table roller, only responding to !scene, !fate, !event, and !chaos.
-            auto: 1         // Emulator is actively controlling the flow of scenes.
-        },
-        states: {
-            idle: 0,            // Automatic mode has not been initiated before
-            sceneStart: 1,      // A scene has been initiated. Waiting on player to click 'continue'.
-            sceneDesc: 2,       // Scene generated and displayed. Waiting on player to provide scene description.
-            sceneRunning: 3,    // Players take over the moment-by-moment running of the scene as it progresses. Waiting on players to call !gme_endscene
-            sceneEnd: 4,        // The scene has been ended. Waiting on players to provide conclusion description.
-            sceneChaos: 5,      // Asks players to determine if chaos shifts up or down. Waiting on player y/n.
-            sceneThreads: 6,    // Asks the players to update threads.
-            sceneSummary: 7,    // Sumarises the scene that has just ended. Waiting on player input to begin new scene or move to review mode.
-        },
-        menuStates: {
-            none: 0,
-            menuLists: 1,   // Displays the list menu. Waiting on player input to begin/resume scene or open specific list.
-            listChar: 2,    // Displays contents of the Characters list with add/update/remove buttons. Waiting on player input to start/resume scene or return to menu.
-            listThread: 3   // Displays contents of the Threads listwith add/update/remove buttons. Waiting on player  input to start/resume scene or return to menu.
-        },
-        currentMode: 0,
-        currentState: 0,
-        currentScene: {}   
-    },
-
-    // Registered command list
-    commandList = new Map(),
-
-    // Lookup values
-    lookup = {
-        fateLabels: [],
-        fateChances: [],
-        eventFocus: [],
-        eventAction: [],
-        eventSubject: [],
-        fateQuery: "",
-        symbol: {}
-    },
-
-    // Stored data controller
-    moduleName = "gmemulator",
-    storedChaosKey = "chaos",
-    storedListsKey = "lists",
-    storedScenesKey = "scenes",
-    storedControlKey = "control",
-    storedSettingsKey = "config",
-
-    //-------------------//
-    // Command functions //
-    //-------------------//
-
-    fateRoll = function(commands) {
-        debugLog("fateRoll()");
-        const chance = commands[1];
-        const fate = generate.fate(chance);
-        let msg = startMessage();
-        buildFateMessage(msg, fate);
-       if (fate.event) {
-            buildHelpMessage(msg, "A random event occurs or the situation changes. Use the event below to determine what happenes.");
-            buildEventMessage(msg, fate.event);
-        }
-        sendMessage(msg);
-    },
-
-    eventRoll = function(commands) {
-        debugLog("eventRoll()");
-        const ev = generate.randomEvent();
-        let msg = startMessage();
-        msg = buildEventMessage(msg, ev).closeTag(true);
-        sendMessage(msg);
-    },
-
-    sceneRoll = function(commands) {
-        debugLog("sceneRoll()");
-        const scene = generate.scene();
-        let msg = startMessage();
-        buildSceneMessage(msg, scene);
-        if (scene.interrupt) {
-            buildHelpMessage(msg, "The next scene is not what you expected. Use the event below to determine what happens instead.");
-            buildEventMessage(msg, scene.event);
-        }
-        else if (scene.modified) {
-            buildHelpMessage(msg, "The scene is altered. Think of how the scene is different than expected. Consult [Fate](&#13;#gme_fate) if you need to.");
-        }
-        else {
-            buildHelpMessage(msg, "The scene begins as you envisioned it.");
-        }
-        sendMessage(msg);
-    },
-
-    modChaos = function(commands) {
-        let symbol = "";
-        const msg = startMessage();
-        let newVal = 5;
-        if (commands.length == 2) {
-            switch (commands[1]) {
-                case "+":
-                    newVal = Math.min(9, StateHandler.read(moduleName, storedChaosKey) + 1);
-                    symbol = lookup.symbol.upMarker;
-                    break;
-                case "-":
-                    newVal = Math.max(1, StateHandler.read(moduleName, storedChaosKey) - 1);
-                    symbol = lookup.symbol.downMarker;
-                    break;
-                case "reset":
-                    newVal = 5;
-                    break;
-                default:
-                    sendMessage(buildErrorMessage(msg, "!chaos only accepts '+', '-', or 'reset' as its argument"));
-                    return;
-            }
-            setChaos(newVal);
-        }
-        sendMessage(buildChaosMessage(msg, newVal, symbol));
-    },
-
-    // Restarts the script
-    reload = function(commands) {
-        debugLog("reload()");
-        init.runAll(true);
-    },
-
-    // Debug: Deletes all stored data and resets them to default values
-    forceDeleteData = function(commands) {
-        log("Force delete");
-        init.storedData(true);
-        init.runAll(true);
-    },
-
-    // Toggles debug mode on and off
-    toggleDebug = function(commands) {
-        log("Debug before: " + getDebug());
-        log("Debug new val: " + !getDebug());
-        setDebug(!getDebug());
-        log("Debug mode toggled to " + getDebug());
-        init.runAll(true);
-    },
-
-    // Debug: Sends an error message to demo the Formatter.ErrorBox function
-    testError = function(commands) {
-        let msg = startMessage();
-        sendMessage(buildErrorMessage(msg, "An error occured."));
-    },
-
-    testNote = function(commands) {
-        let msg = startMessage();
-        buildTitleMessage(msg, "Note");
-        sendMessage(buildHelpMessage(msg, "The note contents are here."));
-    },
-
-    testContinue = function(commands) {
-        let msg = startMessage();
-        buildContinueMessage(msg);
-        sendMessage(msg);
-    },
-
-    // Debug: Sends a message containing test API buttons
-    testButtons = function(commands) {
-        sendChat(getDisplayName(), "Test functions:\n<a href=\"!testerror\">error</a>\n[Note](!testnote)\n[Event](!gme_event)\n[Scene](!gme_scene)\n[Fate](!gme_fate)");
-    },
-
-    testChoice = function(commands) {
-        let msg = startMessage();
-        buildChoiceMessage(msg, "Is this working?", [["Yes", "!yes"], ["No", "!no"], ["Kinda", "!kinda"], ["sorta", "!sorta"], ["Maybe?", "!maybe"]])
-        log(msg.closeTag(true).toString());
-        sendMessage(msg);
-    },
-
-    // Debug: Shows current debug status
-    testDebug = function(commands) {
-        sendChat("API", "Debug = " + getDebug());
-    },
-
-    testInput = function(commands) {
-        let msg = startMessage();
-        sendMessage(buildInputMessage(msg, "Please add a description of the scene."));
-    },
-
-    userInput = function(commands) {
-
-    },
-
-
-    //----------------//
-    // Roll Functions //
-    //----------------//
-    generate = (function() {
-        // Creates an event
-        const randomEvent = function() {
-            var ev = {
-                rolls: [randomInteger(100), randomInteger(100), randomInteger(100)],
-                focusText: "",
-                focusRoll: 0,
-                actionText: "",
-                actionRoll: 0,
-                subjectText: "",
-                subjectRoll: 0
-            };
-
-            for (var i = 0; i < lookup.eventFocus.length; i++) {
-                var e = lookup.eventFocus[i];
-                if (ev.rolls[0] <= e[0]) {
-                    ev.focusText = e[1];
-                    ev.focusRoll = ev.rolls[0];
-                    break;
-                }
-            }
-            ev.actionText = lookup.eventAction[ev.rolls[1] - 1];
-            ev.actionRoll = ev.rolls[1];
-            ev.subjectText = lookup.eventSubject[ev.rolls[2] - 1];
-            ev.subjectRoll = ev.rolls[2];
-            debugLog("ev1: " + ev + " F: " + ev.focusRoll + " " + ev.focusText + " A: " + ev.actionRoll + " " + ev.actionText + " S: " + ev.subjectRoll + " " + ev.subjectText)
-
-            return ev;
-        };
-    
-        // Creates a scene
-        const scene = function() {
-            var scene = {
-                roll: 0,
-                outcome: "",
-                interrupt: false,
-                modified: false,
-                chaos: StateHandler.read(moduleName, storedChaosKey),
-                event: 0
-            }
-
-            scene.roll = randomInteger(10);
-            if (scene.roll > scene.chaos) {
-                scene.outcome = "As expected";
-            }
-            else {
-                if (scene.roll % 2 == 0) {
-                    scene.outcome = "Altered"
-                    scene.modified = true;
-                }
-                else {
-                    scene.outcome = "Interrupted!"
-                    scene.interrupt = true;
-                    scene.event = generate.randomEvent();
-                }
-            }
-            return scene;
-        };
-
-        // Creates a fate result
-        const fate = function(chance) {
-            var fate = {
-                roll: randomInteger(100),
-                chance: chance,
-                chanceText: lookup.fateLabels[chance],
-                chaos: StateHandler.read(moduleName, storedChaosKey),
-                outcome: "",
-                event: null
-            }
-            var ranges = lookup.fateChances[fate.getChaos() - 1][chance];
-            if (fate.roll >= ranges[2]) { fate.outcome = "Extreme No"; }
-            else if (fate.roll >= ranges[1]) { fate.outcome = "No" }
-            else if (fate.roll > ranges[0]) { fate.outcome = "Yes" }
-            else if (fate.roll <= ranges[0]) { fate.outcome = "Extreme Yes" }
-            var rollStr = fate.roll.toString();
-            if (rollStr.length == 2 && rollStr.substring(0, 1) === rollStr.substring(1, 2)) {
-                fate.event = generate.randomEvent();
-            }
-            return fate;
-        };
-
-        return {
-            fate: fate,
-            randomEvent: randomEvent,
-            scene: scene
-        };
-    }()),
-    
-    //--------------------------//
-    // Initialisation Functions //
-    //--------------------------//
-    init = (function() {
-        // 
-        var flags = function() {
-            ready = false;
-            errorred = false;
-        },
-
-        // Initialises the lookup tables
-        lookups = function() {
-            lookup.fateLabels = ["Impossible", "No way", "Very unlikely", "Unlikely", "50/50", "Somewhat likely", "Likely", "Very likely", "Near sure thing", "A sure thing", "Has to be"];
-            lookup.fateChances = [
-                [[0, -20, 77], [0, 0, 81], [1, 5, 82], [1, 5, 82], [2, 10, 83], [4, 20, 85], [5, 25, 86], [9, 45, 90], [10, 50, 91], [11, 55, 92], [16, 80, 97]],
-                [[0, 0, 81], [1, 5, 82], [1, 5, 82], [2, 10, 83], [3, 15, 84], [5, 25, 86], [7, 35, 88], [10, 50, 91], [11, 55, 92], [13, 65, 94], [18, 85, 97]],
-                [[0, 0, 81], [1, 5, 82], [2, 5, 83], [3, 15, 84], [5, 25, 86], [9, 45, 90], [10, 50, 91], [13, 65, 94], [15, 75, 96], [16, 80, 97], [18, 90, 99]],
-                [[1, 8, 82], [2, 10, 83], [3, 15, 84], [4, 20, 85], [7, 35, 88], [10, 50, 91], [11, 55, 92], [15, 75, 96], [16, 80, 97], [16, 85, 97], [19, 95, 100]],
-                [[1, 5, 82], [3, 15, 84], [5, 25, 86], [7, 35, 88], [10, 50, 91], [13, 65, 94], [15, 75, 96], [16, 85, 97], [18, 90, 99], [18, 90, 99], [19, 95, 100]],
-                [[2, 10, 86], [5, 25, 86], [9, 45, 90], [10, 50, 91], [13, 65, 94], [16, 80, 97], [16, 85, 97], [18, 90, 99], [19, 95, 100], [19, 95, 100], [20, 100, 101]],
-                [[3, 15, 84], [7, 35, 88], [10, 50, 91], [11, 55, 92], [15, 75, 96], [16, 85, 97], [18, 90, 99], [19, 95, 100], [19, 95, 100], [19, 95, 100], [20, 100, 101]],
-                [[5, 25, 86], [10, 50, 91], [13, 65, 94], [15, 75, 96], [16, 85, 97], [18, 90, 99], [19, 95, 100], [19, 95, 100], [20, 100, 101], [22, 101, 101], [26, 101, 101]],
-                [[10, 50, 91], [15, 75, 96], [16, 85, 97], [18, 90, 99], [19, 95, 100], [19, 95, 100], [20, 100, 101], [21, 101, 101], [23, 101, 101], [25, 101, 101], [26, 101, 101]]
-            ];
-            lookup.eventFocus = [
-                [7, "Remote event"],
-                [28, "NPC action"],
-                [35, "Introduce a new NPC"],
-                [45, "Move toward a thread"],
-                [52, "Move away from a thread"],
-                [55, "Close a thread"],
-                [67, "PC negative"],
-                [75, "PC positive"],
-                [83, "Ambiguous event"],
-                [92, "NPC negative"],
-                [100, "NPC positive"]
-            ];
-            lookup.eventAction = [
-                "Attainment", "Starting", "Neglect", "Fight", "Recruit", "Triumph", "Violate", "Oppose", "Malice", "Communicate", "Persecute", "Increase", "Decrease", "Abandon", "Gratify",
-                "Inquire", "Antagonise", "Move", "Waste", "Truce", "Release", "Befriend", "Judge", "Desert", "Dominate", "Procrastinate", "Praise", "Separate", "Take", "Break", "Heal",
-                "Delay", "Stop", "Lie", "Return", "Immitate", "Struggle", "Inform", "Bestow", "Postpone", "Expose", "Haggle", "Imprison", "Release", "Celebrate", "Develop", "Travel",
-                "Block", "Harm", "Debase", "Overindulge", "Adjourn", "Adversity", "Kill", "Disrupt", "Usurp", "Create", "Betray", "Agree", "Abuse", "Oppress", "Inspect", "Ambush", "Spy",
-                "Attach", "Carry", "Open", "Carelessness", "Ruin", "Extravagance", "Trick", "Arrive", "Propose", "Divide", "Refuse", "Mistrust", "Deceive", "Cruelty", "Intolerance",
-                "Trust", "Excitement", "Activity", "Assist", "Care", "Negligence", "Passion", "Work hard", "Control", "Attract", "Failure", "Pursue", "Vengeance", "Proceedings",
-                "Dispute", "Punish", "Guide", "Transform", "Overthrow", "Oppress", "Change"
-            ];
-            lookup.eventSubject = [
-                "Goals", "Dreams", "Environment", "Outside", "Inside", "Reality", "Allies", "Enemies", "Evil", "Good", "Emotions", "Opposition", "War", "Peace", "The innocent", "Love",
-                "The spiritual", "The intellectual", "New ideas", "Joy", "Messages", "Energy", "Balance", "Tension", "Friendship", "The physical", "A project", "Pleasures", "Pain",
-                "Possessions", "Benefits", "Plans", "Lies", "Expectations", "Legal matters", "Bureaucracy", "Business", "A path", "News", "Exterior factors", "Advice", "A plot",
-                "Competition", "Prison", "Illness", "Food", "Attention", "Success", "Failure", "Travel", "Jealousy", "Dispute", "Home", "Investment", "Suffering", "Wishes", "Tactics",
-                "Stalemate", "Randomness", "Misfortune", "Death", "Disruption", "Power", "A burden", "Intrigues", "Fears", "Ambush", "Rumor", "Wounds", "Extravagance", "A representative",
-                "Adversities", "Opulence", "Liberty", "Military", "The mundane", "Trials", "Masses", "Vehicle", "Art", "Victory", "Dispute", "Riches", "Status quo", "Technology",
-                "Hope", "Magic", "Illusions", "Portals", "Danger", "Weapons", "Animals", "Weather", "Elements", "Nature", "The public", "Leadership", "Fame", "Anger", "Information"
-            ];
-            lookup.fateQuery = "?{How likely?|Impossible, 0|No way, 1|Very unlikely, 2|Unlikely, 3|50/50, 4|Somewhat likely, 5|Likely, 6|Very likely, 7|Near sure thing, 8|A sure thing, 9|Has to be, 10}";
-            lookup.symbol = {
-                upMarker: "▲",
-                downMarker: "▼",
-                stringStart: "⌈",
-                stringEnd: "⌉"
-            };
-        },
-
-        // Initialises the state global object
-        storedData = function(force) {
-            if (!StateHandler.moduleExists(moduleName) || force) {
-                // Sets up the expected keys-values
-                var defaults = [
-                    [storedChaosKey, 5],
-                    [storedSettingsKey, { debug: false, displayName: "GM" }],
-                    [storedListsKey, { lists: new Map() }],
-                    [storedScenesKey, { scenes: [] }]
-                ];
-
-                // Creates module the first time
-                StateHandler.initModule(moduleName);
-
-                // Defaults values that are missing 
-                defaults.forEach((a) => {
-                    if (!StateHandler.keyExists(moduleName, a[0]) || force) {
-                        StateHandler.write(moduleName, a[0], a[1]);
-                    }
-                });
-            }
-        },
-
-        // Initialises the macros used
-        macros = function() {
-            var gm = findObjs({ _type: 'player' })[0];
-            manageMacro("Fate", "!gme_fate " + lookup.fateQuery, gm.id);
-            manageMacro("Chaos_Up", "!gme_chaos +", gm.id);
-            manageMacro("Chaos_Down", "!gme_chaos -", gm.id);
-            manageMacro("Chaos", "!gme_chaos", gm.id);
-            manageMacro("Scene", "!gme_scene", gm.id);
-            manageMacro("Event", "!gme_event", gm.id);
-            manageMacro("Reload", "!gme_reload", gm.id);
-
-            // Used for automatic mode
-            manageMacro("AddSceneDesc", "!gme_startscene desc " + lookup.symbol.stringStart + "?{Add a description of the scene}" + lookup.symbol.stringEnd, gm.id);
-            manageMacro("EndSceneDesc", "!gme_endscene desc " + lookup.symbol.stringStart + "?{How was the scene concluded?}" + lookup.symbol.stringEnd, gm.id);
-            manageMacro("gme_input", "!gme_input " + lookup.symbol.stringStart + "?{Input}" + lookup.symbol.stringEnd, gm.id);
-        },
-
-        // Registers all commands
-        commands = function() {
-            // Clear registered commands
-            commandList = new Map();
-
-            // Core commands for controlling the emulator
-            registerCommand("!gme_chaos", modChaos, 1, 2);
-            registerCommand("!gme_fate", fateRoll, 2, 2);
-            registerCommand("!gme_event", eventRoll, 1, 1);
-            registerCommand("!gme_scene", sceneRoll, 1, 1);
-            registerCommand("!gme_reload", reload, 1, 1);
-
-            // Commands for automated use
-            //registerCommand("!gme_startscene", startScene, 1, 3);
-            //registerCommand("!gme_endscene", endScene, 1, 3);
-            registerCommand("!gme_input", userInput, 1, 2);
-
-            // Commands only used for debugging
-            registerCommand("!gme_debug", toggleDebug, 1, 1);
-            registerCommand("!gme_isdebug", testDebug, 1, 1);
-            registerCommand("!testreset", forceDeleteData, 1, 1);
-            if (getDebug()) {
-                registerCommand("!testerror", testError, 1, 1);
-                registerCommand("!testnote", testNote, 1, 1);
-                registerCommand("!testchoice", testChoice, 1, 1);
-                registerCommand("!testcontinue", testContinue, 1, 1);
-                registerCommand("!testinput", testInput, 1, 1);
-                registerCommand("!testbuttons", testButtons, 1, 1);
-            }
-
-            debugLog(commandList.size + " known Commands:")
-            commandList.forEach((val, key) => {
-                debugLog("-> " + key);
-            });
-        },
-
-        // Registers the chat event handler. Should never be run more than once per instance of the API.
-        eventHandlers = function() {
-            on('chat:message', handleInput);
-        },
-
-        // Runs all initialisation functions
-        runAll = function(isReload) {
-            let msg = startMessage();
-            sendMessage(buildHelpMessage(msg, "<i>GM Emulator</i> is initialising."));
-
-            flags();
-            storedData(false);
-            lookups();
-            macros();
-            commands();
-            if (!isReload) {
-                eventHandlers();
-            }
-
-            if (errorred) {
-                msg = startMessage();
-                sendMessage(buildErrorMessage(msg, "An unrecoverable error occurred during set up. Please restart the API script."));
-            }
-            else {
-                msg = startMessage();
-                sendMessage(buildHelpMessage(msg, "<i>GM Emulator</i> is now ready for use."));
-                ready = true;
-            }
-        };
-        
-        return {
-            runAll: runAll
-        };
-    }()),
-    
-    //--------------------------//
-    // Global storage accessors //
-    //--------------------------//
-
-    // Retrieves name used when the emulator sends chat messages. Readonly.
-    getDisplayName = function() {
-        return StateHandler.read(moduleName, storedSettingsKey).displayName;
-    },
-
-    // Retrieves current debug state. Default is false.
-    getDebug = function() {
-        return StateHandler.read(moduleName, storedSettingsKey).debug;
-    },
-
-    // Sets the debug state.
-    setDebug = function(val) {
-        var setting = StateHandler.read(moduleName, storedSettingsKey);
-        setting.setDebug(!!val);
-        StateHandler.write(moduleName, storedSettingsKey, setting);
-    },
-
-    // Retrieves the current Chaos level
-    getChaos = function() {
-        return StateHandler.read(moduleName, storedChaosKey);
-    },
-
-    // Sets the current Chaos level
-    setChaos = function(val) {
-        StateHandler.write(moduleName, storedChaosKey, val);
-    },
-
-    //------------------//
-    // Helper Functions //
-    //------------------//
-
-    // Adds a new macro to the Roll20 game, or updates it to the correct values if it already exists
-    manageMacro = function(mName, mAction, gmId) {
-        var macro = findObjs({ type: "macro", name: mName });
-        if (macro.length == 0) {
-            createObj("macro", {
-                name: mName,
-                action: mAction,
-                playerid: gmId,
-                visibleto: "all"
-            });
-            debugLog("Added macro: " + mName);
-        }
-        else {
-            //debugLog("Macro '" + mName + "' found. Action: " + macro[0].action + ". Object: " + macro);
-            macro[0].set({
-                action: mAction,
-                visibleto: "all"
-            });
-            if (macro.length > 1) {
-                for (var i = 1; i < macro.length; i++) {
-                    macro[i].remove();
-                }
-            }
-        }
-    },
-
-    // Adds a new API command which will be actioned by the script. Players trigger these by typing the command text in the Roll20 chat or using the provided macros.
-    //Param:    commandText string
-    registerCommand = function(commandText, action, minArgs, maxArgs) {
-        var error = null;
-        if (!commandText.startsWith("!")) { error = "All command texts must start with a '!'"; }
-        else if (typeof action != "function") { error = "The 'Action' parameter must be a function."; }
-        else if (typeof minArgs != "number" || parseInt(minArgs) < 1) { error = "The 'MinArgs' parameter must be an integer >= 1."; }
-        else if (typeof maxArgs != "number" || parseInt(maxArgs) < 1) { error = "The 'MaxArgs' parameter must be an integer >= 1."; }
-        else if (!error && action.length != 1) { error = "The 'action' function must take only one parameter (the string[] commands)." }
-
-        if (error) {
-            sendChat("error", "Cannot Initialise command '" + commandText + "'. " + error);
-            errorred = true;
-            return;
-        }
-
-        var command =
-        {
-            Action: action,
-            MinArgs: parseInt(minArgs),
-            MaxArgs: parseInt(maxArgs)
-        };
-        commandList.set(commandText, command);
-        debugLog("Command '" + commandText + "' registered.");
-    },
-
-    // Prints a message to the log if the debug config is set to true
-    debugLog = function(msg) {
-        if (getDebug()) { log(msg); }
-    },
-
-    // Returns true if the commands array conforms to the min and max arguents permitted
-    argCheck = function(cmdArray, min = 1, max = 1) {
-        return Array.isArray(cmdArray) && cmdArray.length >= min && cmdArray.length <= max;
-    },
-
-    //-------------------//
-    // Display functions //
-    //-------------------//
-    sendMessage = function(msg, archive) {
-        if (msg instanceof messageBuilder) {
-            sendChat(getDisplayName(), msg.closeTag(true).toString(), null, archive ? {noarchive: true} : null);
-        }
-        else {
-            sendChat(getDisplayName(), msg, null, archive ? {noarchive: true} : null);
-        }
-    };
 
     /**
      * Builder class for creating css styles.
@@ -976,7 +413,862 @@ var GMEmulator = GMEmulator || (function(){
         }
     }
 
-    var styles = {
+    /**
+     * Static class for handling persistent data storage
+     * @class StateHandler
+     */
+    class StateHandler {
+        // Returns the stored value or null if module or key do not exist
+        static read(module, key) {
+            if (this.moduleExists(module) && this.keyExists(module, key)) {
+                return state[module.toLowerCase()][key.toLowerCase()];
+            }
+            return null;
+        }
+
+        // Creates or updates the stored value
+        static write(module, key, value) {
+            this.initModule(module)
+            state[module.toLowerCase()][key.toLowerCase()] = value;
+        }
+
+        // Creates a module if it does not already exist
+        static initModule(module) {
+            if (!this.moduleExists(module.toLowerCase())) {
+                state[module.toLowerCase()] = {};
+            }
+        }
+
+        // Returns true if the specified module exists
+        static moduleExists(module) {
+            return state.hasOwnProperty(module.toLowerCase());
+        }
+
+        // Returns true if the specified module and key exists
+        static keyExists(module, key) {
+            return this.moduleExists && state[module.toLowerCase()].hasOwnProperty(key.toLowerCase());
+        }
+    }
+
+    // State variables
+    let ready = false,      // Var to block use until loaded
+    errorred = false;       // Var to block use due to un-resolvable errors
+
+    // Stored data controller
+    const data = {
+        module: "gmemulator",
+        chaos: "chaos",
+        lists: "lists",
+        scenes: "scenes",
+        control: "control",
+        settings: "config"
+    };
+
+    let scenes = StateHandler.read(data.module, data.scenes),
+    control = StateHandler.read(data.module, data.control),
+    lists = StateHandler.read(data.module, data.lists),
+
+    // Registered command list
+    commandList = new Map();
+
+    // Lookup values
+    const lookup = {
+        fateLabels: [],
+        fateChances: [],
+        eventFocus: [],
+        eventAction: [],
+        eventSubject: [],
+        fateQuery: "",
+        symbol: {}
+    },
+
+    //-------------------//
+    // Command functions //
+    //-------------------//
+
+    fateRoll = function(commands) {
+        debugLog("fateRoll()");
+        const chance = commands[1];
+        const fate = generate.fate(chance);
+        let msg = startMessage();
+        buildFateMessage(msg, fate);
+       if (fate.event) {
+            buildHelpMessage(msg, "A random event occurs or the situation changes. Use the event below to determine what happenes.");
+            buildEventMessage(msg, fate.event);
+        }
+        sendMessage(msg, true);
+    },
+
+    eventRoll = function(commands) {
+        debugLog("eventRoll()");
+        const ev = generate.randomEvent();
+        let msg = startMessage();
+        msg = buildEventMessage(msg, ev).closeTag(true);
+        sendMessage(msg, true);
+    },
+
+    sceneRoll = function(commands) {
+        debugLog("sceneRoll()");
+        const scene = generate.scene();
+        let msg = startMessage();
+        buildSceneMessage(msg, scene, true);
+        sendMessage(msg, true);
+    },
+
+    modChaos = function(commands) {
+        let symbol = "";
+        const msg = startMessage();
+        let newVal = 5;
+        if (commands.length == 2) {
+            switch (commands[1]) {
+                case "+":
+                    newVal = Math.min(9, getChaos() + 1);
+                    symbol = lookup.symbol.upMarker;
+                    break;
+                case "-":
+                    newVal = Math.max(1, getChaos() - 1);
+                    symbol = lookup.symbol.downMarker;
+                    break;
+                case "reset":
+                    newVal = 5;
+                    break;
+                default:
+                    sendMessage(buildErrorMessage(msg, "!chaos only accepts '+', '-', or 'reset' as its argument"));
+                    return;
+            }
+            setChaos(newVal);
+        }
+        sendMessage(buildChaosMessage(msg, newVal, symbol), true);
+    },
+
+    // Restarts the script
+    reload = function(commands) {
+        debugLog("reload()");
+        init.runAll(true);
+    },
+
+    // Debug: Deletes all stored data and resets them to default values
+    forceDeleteData = function(commands) {
+        log("Force delete");
+        init.storedData(true);
+        init.runAll(true);
+        let m = startMessage();
+        sendMessage(buildTitleMessage(m, "Stored data deleted."), true);
+    },
+
+    // Toggles debug mode on and off
+    toggleDebug = function(commands) {
+        setDebug(!getDebug());
+        let m = startMessage();
+        sendMessage(buildTitleMessage(m, getDebug() ? "Debug mode enabled" : "Debug mode disabled"), true);
+        log("Debug mode toggled to " + getDebug());
+        init.runAll(true);
+    },
+
+    // Debug: Sends an error message to demo the Formatter.ErrorBox function
+    testError = function(commands) {
+        let msg = startMessage();
+        sendMessage(buildErrorMessage(msg, "An error occured."));
+    },
+
+    testNote = function(commands) {
+        let msg = startMessage();
+        buildTitleMessage(msg, "Note");
+        sendMessage(buildHelpMessage(msg, "The note contents are here."));
+    },
+
+    testContinue = function(commands) {
+        let msg = startMessage();
+        buildInputMessage(msg, "This would be an explanation", true);
+        sendMessage(msg);
+    },
+
+    // Debug: Sends a message containing test API buttons
+    testButtons = function(commands) {
+        let m = startMessage();
+        buildChoiceMessage(m, "Test functions", [
+            ["Error", "!testerror"],
+            ["Note", "!testnote"],
+            ["Event", "!gme_event"],
+            ["Scene", "!gme_scene"],
+            ["Fate", "!&#13;#Fate"],
+            ["Continue", "!testcontinue"],
+            ["Choice", "!testchoice"],
+            ["Input", "!testinput"]
+        ]);
+        sendMessage(m);
+    },
+
+    testChoice = function(commands) {
+        let msg = startMessage();
+        buildChoiceMessage(msg, "Is this working?", [["Yes", "!yes"], ["No", "!no"], ["Kinda", "!kinda"], ["sorta", "!sorta"], ["Maybe?", "!maybe"]])
+        log(msg.closeTag(true).toString());
+        sendMessage(msg);
+    },
+
+    // Debug: Shows current debug status
+    testDebug = function(commands) {
+        let m = startMessage();
+        sendMessage(buildTitleMessage(m, getDebug() ? "Debug mode enabled" : "Debug mode disabled"), true);
+    },
+
+    testInput = function(commands) {
+        let msg = startMessage();
+        sendMessage(buildInputMessage(msg, "Please add a description of the scene."));
+    },
+
+    reportStatus = function(commands) {
+        let m = startMessage();
+        buildTitleMessage(m, "Current State");
+        buildHelpMessage(m, "CurrentMode: " + control.currentMode);
+        buildHelpMessage(m, "CurrentState: " + control.currentState);
+        buildHelpMessage(m, "CurrentMenuState: " + control.currentMenuState);
+        sendMessage(m);
+    },
+
+    userInput = function(commands) {
+        if (control.currentMode == control.modes.passive) {
+            // If not in automated mode, report that to user.
+            let m = startMessage();
+            buildTitleMessage(m, "GM Emulator");
+            buildHelpMessage(m, "Automatic mode is disabled");
+            buildHelpMessage(m, "If you want to enable automatic mode type <span style='font-family: Consolas; background-color: #e6e6e6;'>!gme_auto on</span> in chat or click [here](!gme_auto on).");
+            sendMessage(m);
+        }
+        else {
+            if (control.currentMenuState != control.menuStates.none) {
+                if (commands.length > 1) {
+                    switch (commands[1]) {
+                        case "menuChars":
+                            control.currentMenuState = control.menuStates.listChar;
+                            break;
+                        case "menuThreads":
+                            control.currentMenuState = control.menuStates.listThread;
+                            break;
+                        case "startScene":
+                            control.currentMenuState = control.menuStates.none;
+                            if (control.currentState == control.states.sceneList) {
+                                control.currentState = control.states.sceneStart;
+                            }
+                            return userInput(["!gme_input"]);
+                    }
+                }
+                let m = startMessage();
+                switch (control.currentMenuState) {
+                    case control.menuStates.listThread:
+                        buildListMessage(m, "threads", "Thread List", "Threads are storylines and plot hooks. As the adventure continues, more threads may develop as subplots grow. A thread is considered 'open' as long as it remains unresolved. Usually, the adventure is over as soon as the main thread is solved, or all of the open threads are closed.");
+                        buildChoiceMessage(m, "Use the buttons below to navigate.", [["Begin next scene", "!gme_input startScene"], ["Character list", "!gme_input menuChars"]]);
+                        break;
+                    case control.menuStates.listChar:
+                        buildListMessage(m, "chars", "Character List", "Keep track of all of the NPCs who pop up during an adventure. At the end of each scene during an adventure, you will review this list and add any more NPCs who premiered during that scene and remove anyone who has exited the adventure (usually, this means they’re dead).");
+                        buildChoiceMessage(m, "Use the buttons below to navigate.", [["Begin next scene", "!gme_input startScene"], ["Threads list", "!gme_input menuThreads"]]);
+                        break;
+                }
+
+                sendMessage(m);
+            }
+            else {
+                // If not in a menu
+                switch (control.currentState) {
+                    case control.states.idle:
+                        if (commands.length > 1 && commands[1].toLowerCase() == "continue") {
+                            control.currentState = control.states.sceneStart;
+                            return userInput(commands);
+                        }
+                        else
+                        {
+                            let m = startMessage();
+                            sendMessage(buildInputMessage(m, "Starting scene " + StateHandler.read(data.module, data.scenes).index + 1, true));
+                        }
+                        break;
+                    case control.states.sceneStart:
+                            addScene(generate.scene());
+                            control.currentState = control.states.sceneDesc;
+                            let m = startMessage();
+                            buildSceneMessage(m, currentScene(), true);
+                            buildInputMessage(m, "Add a description of the scene setup.");
+                            sendMessage(m);
+                            break;
+                    case control.states.sceneDesc:
+                        if (commands.length > 1) {
+                            currentScene().setup = commands[1];
+                            control.currentState = control.states.sceneRunning;
+                            let m = startMessage();
+                            buildTitleMessage(m, "Scene " + scenes.index, "headInput");
+                            buildHelpMessage(m, "<b>Setup:</b><br/>" + currentScene().setup);
+                            buildHelpMessage(m, "Play out the scene. When the action is finished use the 'GM_Emulator' macro, type <span style='font-family: Consolas; background-color: #e6e6e6;'>!gme_input</span> in chat, or click [here](!gme_input).");
+                            sendMessage(m);
+                        } else {
+                            let m = startMessage();
+                            buildSceneMessage(m, currentScene(), true);
+                            buildInputMessage(m, "Add a description of the scene setup.");
+                            sendMessage(m);
+                        }
+                        break;
+                    case control.states.sceneRunning:
+                        if (commands.length > 1) {
+                            if(commands[1] == "endScene") {
+                                control.currentState = control.states.sceneEnd;
+                                let m = startMessage();
+                                buildInputMessage(m, "Describe how the scene concluded.");
+                                sendMessage(m);
+                            } else {
+                                let m = startMessage();
+                                buildHelpMessage(m, "Continue playing out the scene. When the action is finished use the 'GM_Emulator' macro, type <span style='font-family: Consolas; background-color: #e6e6e6;'>!gme_input</span> in chat, or click [here](!gme_input).");
+                                sendMessage(m);
+                            }
+                        } else {
+                            let m = startMessage();
+                            buildChoiceMessage(m, "Are you ready to end the scene?", [["Yes", "!gme_input endScene"], ["No", "!gme_input no"]]);
+                            sendMessage(m);
+                        }
+                        break;
+                    case control.states.sceneEnd:
+                        if (commands.length > 1) {
+                            currentScene().ending = commands[1];
+                            control.currentState = control.states.sceneChaos;
+                            let m = startMessage();
+                            buildChoiceMessage(m, "Were the PCs in control of the scene?", [["Yes", "!gme_input shiftDown"], ["No", "!gme_input shiftUp"]]);
+                            sendMessage(m);
+                        } else {
+                            let m = startMessage();
+                            buildInputMessage(m, "Describe how the scene concluded.");
+                            sendMessage(m);
+                        }
+                        break;
+                    case control.states.sceneChaos:
+                        if (commands.length > 1 && ["shiftUp", "shiftDown"].includes(commands[1])) {
+                            currentScene().chaosShift = commands[1];
+                            let m = startMessage();
+                            buildTitleMessage(m, "Chaos shifts");
+                            if (commands[1] == "shiftUp") {
+                                setChaos(getChaos() + 1);
+                                buildChaosMessage(m, getChaos(), lookup.symbol.upMarker);
+                            }
+                            else {
+                                setChaos(getChaos() - 1);
+                                buildChaosMessage(m, getChaos(), lookup.symbol.downMarker);
+                            }
+                            control.currentState = control.states.sceneSummary;
+                            sendMessage(m);
+                            return userInput(["!gme_input"]);
+                        } else {
+                            let m = startMessage();
+                            buildChoiceMessage(m, "Were the PCs in control of the scene?", [["Yes", "!gme_input shiftDown"], ["No", "!gme_input shiftUp"]]);
+                            sendMessage(m);
+                        }
+                        break;
+                    case control.states.sceneSummary:
+                        if (commands.length > 1 && commands[1] == "Continue") {
+                            control.currentState = control.states.sceneLists;
+                            control.currentMenuState = control.menuStates.listThread;
+                            return userInput(["!gme_input"]);
+                        } else {
+                            let m = startMessage();
+                            buildTitleMessage(m, "Scene " + currentScene().index + " Summary", "headScene");
+                            buildHelpMessage(m, "<b>Setup:</b><br/>" + currentScene().setup);
+                            buildHelpMessage(m, "<b>Ending:</b><br/>" + currentScene().ending);
+                            buildChaosMessage(m, getChaos(), currentScene().chaosShift == "shiftUp" ? lookup.symbol.upMarker : lookup.symbol.downMarker);
+                            buildInputMessage(m, "Now that the scene is complete, you should review your threads.", true);
+                            sendMessage(m);
+                        }
+                        break;
+                }
+            }
+        }
+    },
+
+    listUpdate = function(commands) {
+        switch(commands.length) {
+            case 3:
+                let curList = getCurrentList();
+                if (curList && commands[1] == "add") {
+                    return listUpdate([commands[0], "add", curList, commands[2]]);
+                }
+                break;
+            case 4:
+                let list = lists[commands[2]];
+                switch(commands[1]) {
+                    case "add":
+                        list.push(commands[3]);
+                        break;
+                    case "delete":
+                        list.splice(commands[3], 1);
+                        break;
+                    case "edit":
+                        list[commands[2]] = commands[3];
+                        break;
+                    case "complete":
+                        log("Complete list: " + list)
+                        list[commands[3]] = lookup.symbol.complete + list[commands[3]];
+                        break;
+                }
+                return userInput(["!gme_input"]);
+        }
+    },
+
+    toggleAuto = function(commands) {
+        let m = startMessage();
+        if (control.currentMode == control.modes.passive) {
+            control.currentMode = control.modes.auto;
+            buildTitleMessage(m, "GM Emulator");
+            buildHelpMessage(m, "Automatic mode enabled.");
+            sendMessage(m);
+            userInput(["!gme_input"]);
+        }
+        else {
+            control.currentMode = control.modes.passive;
+            buildTitleMessage(m, "GM Emulator");
+            buildHelpMessage(m, "Automatic mode disabled.");
+            sendMessage(m);
+        }
+    },
+
+    //----------------//
+    // Roll Functions //
+    //----------------//
+    generate = (function() {
+        // Creates an event
+        const randomEvent = function() {
+            var ev = {
+                rolls: [randomInteger(100), randomInteger(100), randomInteger(100)],
+                focusText: "",
+                focusRoll: 0,
+                actionText: "",
+                actionRoll: 0,
+                subjectText: "",
+                subjectRoll: 0
+            };
+
+            for (var i = 0; i < lookup.eventFocus.length; i++) {
+                var e = lookup.eventFocus[i];
+                if (ev.rolls[0] <= e[0]) {
+                    ev.focusText = e[1];
+                    ev.focusRoll = ev.rolls[0];
+                    break;
+                }
+            }
+            ev.actionText = lookup.eventAction[ev.rolls[1] - 1];
+            ev.actionRoll = ev.rolls[1];
+            ev.subjectText = lookup.eventSubject[ev.rolls[2] - 1];
+            ev.subjectRoll = ev.rolls[2];
+            debugLog("ev1: " + ev + " F: " + ev.focusRoll + " " + ev.focusText + " A: " + ev.actionRoll + " " + ev.actionText + " S: " + ev.subjectRoll + " " + ev.subjectText)
+
+            return ev;
+        };
+    
+        // Creates a scene
+        const scene = function() {
+            var scene = {
+                roll: 0,
+                outcome: "",
+                interrupt: false,
+                modified: false,
+                chaos: StateHandler.read(data.module, data.chaos),
+                event: 0,
+                setup: null,
+                ending: null,
+                chaosShift: null,
+                index: null
+            }
+
+            scene.roll = randomInteger(10);
+            if (scene.roll > scene.chaos) {
+                scene.outcome = "As expected";
+            }
+            else {
+                if (scene.roll % 2 == 0) {
+                    scene.outcome = "Altered"
+                    scene.modified = true;
+                }
+                else {
+                    scene.outcome = "Interrupted!"
+                    scene.interrupt = true;
+                    scene.event = generate.randomEvent();
+                }
+            }
+            return scene;
+        };
+
+        // Creates a fate result
+        const fate = function(chance) {
+            var fate = {
+                roll: randomInteger(100),
+                chance: chance,
+                chanceText: lookup.fateLabels[chance],
+                chaos: StateHandler.read(data.module, data.chaos),
+                outcome: "",
+                event: null
+            }
+            var ranges = lookup.fateChances[fate.chaos - 1][chance];
+            if (fate.roll >= ranges[2]) { fate.outcome = "Extreme No"; }
+            else if (fate.roll >= ranges[1]) { fate.outcome = "No" }
+            else if (fate.roll > ranges[0]) { fate.outcome = "Yes" }
+            else if (fate.roll <= ranges[0]) { fate.outcome = "Extreme Yes" }
+            var rollStr = fate.roll.toString();
+            if (rollStr.length == 2 && rollStr.substring(0, 1) === rollStr.substring(1, 2)) {
+                fate.event = generate.randomEvent();
+            }
+            return fate;
+        };
+
+        return {
+            fate: fate,
+            randomEvent: randomEvent,
+            scene: scene
+        };
+    }()),
+    
+    //--------------------------//
+    // Initialisation Functions //
+    //--------------------------//
+    init = (function() {
+        // 
+        const flags = function() {
+            ready = false;
+            errorred = false;
+        },
+
+        // Initialises the lookup tables
+        lookups = function() {
+            lookup.fateLabels = ["Impossible", "No way", "Very unlikely", "Unlikely", "50/50", "Somewhat likely", "Likely", "Very likely", "Near sure thing", "A sure thing", "Has to be"];
+            lookup.fateChances = [
+                [[0, -20, 77], [0, 0, 81], [1, 5, 82], [1, 5, 82], [2, 10, 83], [4, 20, 85], [5, 25, 86], [9, 45, 90], [10, 50, 91], [11, 55, 92], [16, 80, 97]],
+                [[0, 0, 81], [1, 5, 82], [1, 5, 82], [2, 10, 83], [3, 15, 84], [5, 25, 86], [7, 35, 88], [10, 50, 91], [11, 55, 92], [13, 65, 94], [18, 85, 97]],
+                [[0, 0, 81], [1, 5, 82], [2, 5, 83], [3, 15, 84], [5, 25, 86], [9, 45, 90], [10, 50, 91], [13, 65, 94], [15, 75, 96], [16, 80, 97], [18, 90, 99]],
+                [[1, 8, 82], [2, 10, 83], [3, 15, 84], [4, 20, 85], [7, 35, 88], [10, 50, 91], [11, 55, 92], [15, 75, 96], [16, 80, 97], [16, 85, 97], [19, 95, 100]],
+                [[1, 5, 82], [3, 15, 84], [5, 25, 86], [7, 35, 88], [10, 50, 91], [13, 65, 94], [15, 75, 96], [16, 85, 97], [18, 90, 99], [18, 90, 99], [19, 95, 100]],
+                [[2, 10, 86], [5, 25, 86], [9, 45, 90], [10, 50, 91], [13, 65, 94], [16, 80, 97], [16, 85, 97], [18, 90, 99], [19, 95, 100], [19, 95, 100], [20, 100, 101]],
+                [[3, 15, 84], [7, 35, 88], [10, 50, 91], [11, 55, 92], [15, 75, 96], [16, 85, 97], [18, 90, 99], [19, 95, 100], [19, 95, 100], [19, 95, 100], [20, 100, 101]],
+                [[5, 25, 86], [10, 50, 91], [13, 65, 94], [15, 75, 96], [16, 85, 97], [18, 90, 99], [19, 95, 100], [19, 95, 100], [20, 100, 101], [22, 101, 101], [26, 101, 101]],
+                [[10, 50, 91], [15, 75, 96], [16, 85, 97], [18, 90, 99], [19, 95, 100], [19, 95, 100], [20, 100, 101], [21, 101, 101], [23, 101, 101], [25, 101, 101], [26, 101, 101]]
+            ];
+            lookup.eventFocus = [
+                [7, "Remote event"],
+                [28, "NPC action"],
+                [35, "Introduce a new NPC"],
+                [45, "Move toward a thread"],
+                [52, "Move away from a thread"],
+                [55, "Close a thread"],
+                [67, "PC negative"],
+                [75, "PC positive"],
+                [83, "Ambiguous event"],
+                [92, "NPC negative"],
+                [100, "NPC positive"]
+            ];
+            lookup.eventAction = [
+                "Attainment", "Starting", "Neglect", "Fight", "Recruit", "Triumph", "Violate", "Oppose", "Malice", "Communicate", "Persecute", "Increase", "Decrease", "Abandon", "Gratify",
+                "Inquire", "Antagonise", "Move", "Waste", "Truce", "Release", "Befriend", "Judge", "Desert", "Dominate", "Procrastinate", "Praise", "Separate", "Take", "Break", "Heal",
+                "Delay", "Stop", "Lie", "Return", "Immitate", "Struggle", "Inform", "Bestow", "Postpone", "Expose", "Haggle", "Imprison", "Release", "Celebrate", "Develop", "Travel",
+                "Block", "Harm", "Debase", "Overindulge", "Adjourn", "Adversity", "Kill", "Disrupt", "Usurp", "Create", "Betray", "Agree", "Abuse", "Oppress", "Inspect", "Ambush", "Spy",
+                "Attach", "Carry", "Open", "Carelessness", "Ruin", "Extravagance", "Trick", "Arrive", "Propose", "Divide", "Refuse", "Mistrust", "Deceive", "Cruelty", "Intolerance",
+                "Trust", "Excitement", "Activity", "Assist", "Care", "Negligence", "Passion", "Work hard", "Control", "Attract", "Failure", "Pursue", "Vengeance", "Proceedings",
+                "Dispute", "Punish", "Guide", "Transform", "Overthrow", "Oppress", "Change"
+            ];
+            lookup.eventSubject = [
+                "Goals", "Dreams", "Environment", "Outside", "Inside", "Reality", "Allies", "Enemies", "Evil", "Good", "Emotions", "Opposition", "War", "Peace", "The innocent", "Love",
+                "The spiritual", "The intellectual", "New ideas", "Joy", "Messages", "Energy", "Balance", "Tension", "Friendship", "The physical", "A project", "Pleasures", "Pain",
+                "Possessions", "Benefits", "Plans", "Lies", "Expectations", "Legal matters", "Bureaucracy", "Business", "A path", "News", "Exterior factors", "Advice", "A plot",
+                "Competition", "Prison", "Illness", "Food", "Attention", "Success", "Failure", "Travel", "Jealousy", "Dispute", "Home", "Investment", "Suffering", "Wishes", "Tactics",
+                "Stalemate", "Randomness", "Misfortune", "Death", "Disruption", "Power", "A burden", "Intrigues", "Fears", "Ambush", "Rumor", "Wounds", "Extravagance", "A representative",
+                "Adversities", "Opulence", "Liberty", "Military", "The mundane", "Trials", "Masses", "Vehicle", "Art", "Victory", "Dispute", "Riches", "Status quo", "Technology",
+                "Hope", "Magic", "Illusions", "Portals", "Danger", "Weapons", "Animals", "Weather", "Elements", "Nature", "The public", "Leadership", "Fame", "Anger", "Information"
+            ];
+            lookup.fateQuery = "?{How likely?|Impossible, 0|No way, 1|Very unlikely, 2|Unlikely, 3|50/50, 4|Somewhat likely, 5|Likely, 6|Very likely, 7|Near sure thing, 8|A sure thing, 9|Has to be, 10}";
+            lookup.symbol = {
+                upMarker: "▲",
+                downMarker: "▼",
+                stringStart: "⌈",
+                stringEnd: "⌉",
+                add: "➕",
+                remove: "➖",
+                edit: "✎",
+                complete: "✔️",
+                dead: "☠️"
+            };
+        },
+
+        // Initialises the state global object
+        storedData = function(force) {
+            if (!StateHandler.moduleExists(data.module) || force) {
+                if (force) { log("Force reseting storedData"); }
+                // Sets up the expected keys-values
+                var defaults = [
+                    [data.chaos, 5],
+                    [data.settings, { debug: false, displayName: "GM" }],
+                    [data.lists, { chars: [], threads: [] }],
+                    [data.scenes, { 
+                        scenes: [], 
+                        index: 0
+                    }],
+                    [data.control, {
+                        modes: { 
+                            passive: 0,     // Emulator is acting as a random table roller, only responding to !scene, !fate, !event, and !chaos.
+                            auto: 1         // Emulator is actively controlling the flow of scenes.
+                        },
+                        states: {
+                            idle: 0,            // Automatic mode has not been initiated before
+                            sceneStart: 1,      // A scene has been initiated. Waiting on player to click 'continue'.
+                            sceneDesc: 2,       // Scene generated and displayed. Waiting on player to provide scene description.
+                            sceneRunning: 3,    // Players take over the moment-by-moment running of the scene as it progresses. Waiting on players to call !gme_endscene
+                            sceneEnd: 4,        // The scene has been ended. Waiting on players to provide ending description.
+                            sceneChaos: 5,      // Asks players to determine if chaos shifts up or down. Waiting on player y/n.
+                            sceneSummary: 6,    // Sumarises the scene that has just ended. Waiting on player input to begin new scene or move to review mode.
+                            sceneLists: 7,    // Asks the players to update threads list.
+                            sceneChars: 8,      // Asks the players to review characters list.
+                        },
+                        menuStates: {
+                            none: 0,
+                            menuLists: 1,   // Displays the list menu. Waiting on player input to begin/resume scene or open specific list.
+                            listChar: 2,    // Displays contents of the Characters list with add/update/remove buttons. Waiting on player input to start/resume scene or return to menu.
+                            listThread: 3   // Displays contents of the Threads listwith add/update/remove buttons. Waiting on player  input to start/resume scene or return to menu.
+                        },
+                        currentMode: 0,
+                        currentState: 0,
+                        currentMenuState: 0
+                    }]
+                ];
+
+                // Creates module the first time
+                StateHandler.initModule(data.module);
+
+                // Defaults values that are missing 
+                defaults.forEach((a) => {
+                    if (!StateHandler.keyExists(data.module, a[0]) || force) {
+                        if (force) { log(a[0] + " overwritten with " + JSON.stringify(a[1]))}
+                        StateHandler.write(data.module, a[0], a[1]);
+                    }
+                });
+            }
+
+            scenes = StateHandler.read(data.module, data.scenes),
+            control = StateHandler.read(data.module, data.control);
+            lists = StateHandler.read(data.module, data.lists);
+        },
+
+        // Initialises the macros used
+        macros = function() {
+            var gm = findObjs({ _type: 'player' })[0];
+            manageMacro("Fate", "!gme_fate " + lookup.fateQuery, gm.id);
+            manageMacro("Chaos_Up", "!gme_chaos +", gm.id);
+            manageMacro("Chaos_Down", "!gme_chaos -", gm.id);
+            manageMacro("Chaos", "!gme_chaos", gm.id);
+            manageMacro("Scene", "!gme_scene", gm.id);
+            manageMacro("Event", "!gme_event", gm.id);
+            manageMacro("Reload", "!gme_reload", gm.id);
+
+            // Used for automatic mode
+            manageMacro("GM_Emulator", "!gme_input", gm.id);
+            manageMacro("gme_input", "!gme_input " + lookup.symbol.stringStart + "?{Input}" + lookup.symbol.stringEnd, gm.id);
+            manageMacro("gme_list", "!gme_list add " + lookup.symbol.stringStart + "?{Input}" + lookup.symbol.stringEnd, gm.id);
+        },
+
+        // Registers all commands
+        commands = function() {
+            // Clear registered commands
+            commandList = new Map();
+
+            // Core commands for controlling the emulator
+            registerCommand("!gme", reportStatus, 1, 1);
+            registerCommand("!gme_chaos", modChaos, 1, 2);
+            registerCommand("!gme_fate", fateRoll, 2, 2);
+            registerCommand("!gme_event", eventRoll, 1, 1);
+            registerCommand("!gme_scene", sceneRoll, 1, 1);
+            registerCommand("!gme_reload", reload, 1, 1);
+
+            // Commands for automated use
+            registerCommand("!gme_auto", toggleAuto, 2, 2);
+            registerCommand("!gme_input", userInput, 1, 2);
+            registerCommand("!gme_list", listUpdate, 3, 4);
+
+            // Commands only used for debugging
+            registerCommand("!gme_debug", toggleDebug, 1, 1);
+            registerCommand("!gme_isdebug", testDebug, 1, 1);
+            registerCommand("!testreset", forceDeleteData, 1, 1);
+            if (getDebug()) {
+                registerCommand("!testerror", testError, 1, 1);
+                registerCommand("!testnote", testNote, 1, 1);
+                registerCommand("!testchoice", testChoice, 1, 1);
+                registerCommand("!testcontinue", testContinue, 1, 1);
+                registerCommand("!testinput", testInput, 1, 1);
+                registerCommand("!testbuttons", testButtons, 1, 1);
+            }
+
+            debugLog(commandList.size + " known Commands:")
+            commandList.forEach((val, key) => {
+                debugLog("-> " + key);
+            });
+        },
+
+        // Registers the chat event handler. Should never be run more than once per instance of the API.
+        eventHandlers = function() {
+            on('chat:message', handleInput);
+        },
+
+        // Runs all initialisation functions
+        runAll = function(isReload) {
+            let msg = startMessage();
+            sendMessage(buildHelpMessage(msg, "<i>GM Emulator</i> is initialising."));
+
+            flags();
+            storedData(false);
+            lookups();
+            macros();
+            commands();
+            if (!isReload) {
+                eventHandlers();
+            }
+
+            if (errorred) {
+                msg = startMessage();
+                sendMessage(buildErrorMessage(msg, "An unrecoverable error occurred during set up. Please restart the API script."));
+            }
+            else {
+                msg = startMessage();
+                sendMessage(buildHelpMessage(msg, "<i>GM Emulator</i> is now ready for use."));
+                ready = true;
+            }
+        };
+        
+        return {
+            runAll: runAll,
+            storedData: storedData
+        };
+    }()),
+    
+    //--------------------------//
+    // Global storage accessors //
+    //--------------------------//
+
+    // Retrieves name used when the emulator sends chat messages. Readonly.
+    getDisplayName = function() {
+        return StateHandler.read(data.module, data.settings).displayName;
+    },
+
+    // Retrieves current debug state. Default is false.
+    getDebug = function() {
+        return StateHandler.read(data.module, data.settings).debug;
+    },
+
+    // Sets the debug state.
+    setDebug = function(val) {
+        const setting = StateHandler.read(data.module, data.settings);
+        setting.debug = !!val;
+        StateHandler.write(data.module, data.settings, setting);
+    },
+
+    // Retrieves the current Chaos level
+    getChaos = function() {
+        return StateHandler.read(data.module, data.chaos);
+    },
+
+    getCurrentList = function() {
+        let l = null;
+        switch (control.currentMenuState) {
+            case control.menuStates.listChar:
+                l = "chars";
+                break;
+            case control.menuStates.listThread:
+                l = "threads";
+                break;
+        }
+        return l;
+    },
+
+    // Sets the current Chaos level
+    setChaos = function(val) {
+        StateHandler.write(data.module, data.chaos, Math.min(Math.max(val, 1), 9));
+    },
+
+    currentScene = function() {
+        return scenes.scenes[scenes.index];
+    },
+
+    addScene = function(scene) {
+        scenes.scenes.push(scene);
+        scenes.index = scenes.scenes.length - 1;
+        scene.index = scenes.scenes.length;
+    },
+
+    //------------------//
+    // Helper Functions //
+    //------------------//
+
+    // Adds a new macro to the Roll20 game, or updates it to the correct values if it already exists
+    manageMacro = function(mName, mAction, gmId) {
+        var macro = findObjs({ type: "macro", name: mName });
+        if (macro.length == 0) {
+            createObj("macro", {
+                name: mName,
+                action: mAction,
+                playerid: gmId,
+                visibleto: "all"
+            });
+            debugLog("Added macro: " + mName);
+        }
+        else {
+            //debugLog("Macro '" + mName + "' found. Action: " + macro[0].action + ". Object: " + macro);
+            macro[0].set({
+                action: mAction,
+                visibleto: "all"
+            });
+            if (macro.length > 1) {
+                for (var i = 1; i < macro.length; i++) {
+                    macro[i].remove();
+                }
+            }
+        }
+    },
+
+    // Adds a new API command which will be actioned by the script. Players trigger these by typing the command text in the Roll20 chat or using the provided macros.
+    //Param:    commandText string
+    registerCommand = function(commandText, action, minArgs, maxArgs) {
+        var error = null;
+        if (!commandText.startsWith("!")) { error = "All command texts must start with a '!'"; }
+        else if (typeof action != "function") { error = "The 'Action' parameter must be a function."; }
+        else if (typeof minArgs != "number" || parseInt(minArgs) < 1) { error = "The 'MinArgs' parameter must be an integer >= 1."; }
+        else if (typeof maxArgs != "number" || parseInt(maxArgs) < 1) { error = "The 'MaxArgs' parameter must be an integer >= 1."; }
+        else if (!error && action.length != 1) { error = "The 'action' function must take only one parameter (the string[] commands)." }
+
+        if (error) {
+            sendChat("error", "Cannot Initialise command '" + commandText + "'. " + error);
+            errorred = true;
+            return;
+        }
+
+        var command =
+        {
+            Action: action,
+            MinArgs: parseInt(minArgs),
+            MaxArgs: parseInt(maxArgs)
+        };
+        commandList.set(commandText, command);
+        debugLog("Command '" + commandText + "' registered.");
+    },
+
+    // Prints a message to the log if the debug config is set to true
+    debugLog = function(msg) {
+        if (getDebug()) { log(msg); }
+    },
+
+    // Returns true if the commands array conforms to the min and max arguents permitted
+    argCheck = function(cmdArray, min = 1, max = 1) {
+        return Array.isArray(cmdArray) && cmdArray.length >= min && cmdArray.length <= max;
+    },
+
+    //-------------------//
+    // Display functions //
+    //-------------------//
+    sendMessage = function(msg, archive) {
+        if (msg instanceof messageBuilder) {
+            sendChat(getDisplayName(), msg.closeTag(true).toString(), null, archive ? {noarchive: true} : null);
+        }
+        else {
+            sendChat(getDisplayName(), msg, null, archive ? {noarchive: true} : null);
+        }
+    },
+
+    styles = {
         table: new cssBuilder().width("100%").border(true, true, true, true).backgroundColour("white").apply(),
         headScene: new cssBuilder().backgroundColour("#66ccff").apply(),
         headInstruct: new cssBuilder().backgroundColour("#bfbfbf").apply(),
@@ -992,6 +1284,9 @@ var GMEmulator = GMEmulator || (function(){
         centre: new cssBuilder().alignCentre().apply(),
         b: new cssBuilder().bold(true).apply(),
         i: new cssBuilder().italics(true).apply(),
+        li: new cssBuilder().alignLeft().apply(),
+        strikethrough: new cssBuilder().strikethrough(true).apply(),
+        btn: new cssBuilder().padding(1,1,1,1).margin(1, 1, 1, 1).alignCentre().apply(),
         seperate: new cssBuilder().border(false, true, false, false).apply(),
         bordered: new cssBuilder().border(true, true, true, true).apply()
     },
@@ -1012,10 +1307,10 @@ var GMEmulator = GMEmulator || (function(){
      */
     buildFateMessage = function(msg, fate) {
         return msg
-            .addTag("tr", "thead headFate").addSingle("tr", "", "Fate" ,{colspan: 2}).closeTag()
+            .addTag("tr", "thead headFate").addSingle("td", "", "Fate" ,{colspan: 2}).closeTag()
             .addTag("tr", "rowMain").addSingle("td", "b", "Chaos").addSingle("td", "", fate.chaos).closeTag()
             .addTag("tr", "rowAlt").addSingle("td", "b", "Chance").addSingle("td", "", fate.chanceText).closeTag()
-            .addTag("tr", "rowMain" + (fate.event? " seperate": "")).addSingle("td", "b", "Outcome").addSingle("td", "", "(" + fate.roll + ")" + fate.outcome).closeTag();
+            .addTag("tr", "rowMain" + (fate.event? " seperate": "")).addSingle("td", "b", "Outcome").addSingle("td", "", "(" + fate.roll + ") " + fate.outcome).closeTag();
     },
 
     /**
@@ -1038,12 +1333,26 @@ var GMEmulator = GMEmulator || (function(){
      * @param {*} scene Scene data
      * @returns {messageBuilder}
      */
-    buildSceneMessage = function(msg, scene) {
-            return msg
-            .addTag("tr", "thead headScene").addSingle("td", "", "Scene", {colspan: 2}).closeTag()
+    buildSceneMessage = function(msg, scene, expandOutcome) {
+        msg
+            .addTag("tr", "thead headScene").addSingle("td", "", "Scene" + (scene.index ? " " + scene.index : ""), {colspan: 2}).closeTag()
             .addTag("tr", "rowMain").addSingle("td", "b", "Chaos").addSingle("td", "", scene.chaos).closeTag()
             .addTag("tr", "rowAlt").addSingle("td", "b", "Roll").addSingle("td", "",  scene.roll).closeTag()
             .addTag("tr", "rowMain").addSingle("td", "b", "Outcome").addSingle("td", "", scene.outcome).closeTag();
+
+        if (expandOutcome) {
+            if (scene.interrupt) {
+                buildHelpMessage(msg, "The next scene is not what you expected. Use the event below to determine what happens instead.");
+                buildEventMessage(msg, scene.event);
+            }
+            else if (scene.modified) {
+                buildHelpMessage(msg, "The scene is altered. Think of how the scene is different than expected.<br />Consult [Fate](!&#13;#Fate) if you need to.");
+            }
+            else {
+                buildHelpMessage(msg, "The scene begins as you envisioned it.");
+            }
+        }
+        return msg;
     },
 
     /**
@@ -1085,32 +1394,20 @@ var GMEmulator = GMEmulator || (function(){
         return msg;
     },
 
-    buildInputMessage = function(msg, instruction) {
-        return msg
-            .addTag("tr", "thead headInput").addSingle("td", "", "Input required", { colspan: 2}).closeTag()
-            .addTag("tr", "centre seperate").addSingle("td", "", instruction, { colspan: 2}).closeTag()
-            .addTag("tr", "bordered centre").addSingle("td", "", "[Click here](!&#13;#gme_input)", {colspan: 2}).closeTag();
-    },
+    buildInputMessage = function(msg, instruction, continueBtn) {
+        msg.addTag("tr", "thead headInput").addSingle("td", "", "Input required", { colspan: 2}).closeTag();
+        if (instruction) {
+            msg.addTag("tr", "centre seperate").addSingle("td", "", instruction, { colspan: 2}).closeTag();
+        }
 
-    /**
-     * Adds a 'Click here to continue' buttons to the message.
-     * @param {messageBuilder} msg Message object.
-     * @returns {messageBuilder}
-     */
-    buildContinueMessage = function(msg) {
-        return msg.addTag("tr", "bordered centre").addSingle("td", "", "[Click here to continue](!gme_input " + lookup.symbol.stringStart + "Continue" + lookup.symbol.stringEnd + ")", {colspan: 2}).closeTag();
-    },
+        if (continueBtn) {
+            msg.addTag("tr", "bordered centre").addSingle("td", "", "[Click here to continue](!gme_input " + lookup.symbol.stringStart + "Continue" + lookup.symbol.stringEnd + ")", {colspan: 2}).closeTag()
+        }   
+        else {
+            msg.addTag("tr", "bordered centre").addSingle("td", "", "[Click here](!&#13;#gme_input)", {colspan: 2}).closeTag();
+        }
 
-    /**
-     * Adds a formatted Error to the message.
-     * @param {messageBuilder} msg Message object.
-     * @param {string} err The error text to display.
-     * @returns {messageBuilder}
-     */
-    buildErrorMessage = function(msg, err) {
-        return msg
-            .addTag("tr", "thead headError").addSingle("td", "", "Error", {colspan: 2}).closeTag()
-            .addTag("tr").addSingle("td", "", err, {colspan: 2}).closeTag();
+        return msg;
     },
 
     /**
@@ -1129,8 +1426,54 @@ var GMEmulator = GMEmulator || (function(){
      * @param {string} text The text to display.
      * @returns {messageBuilder}
      */
-    buildTitleMessage = function(msg, text) {
-        return msg.addTag("tr", "thead headInstruct").addSingle("td", "", text, {colspan: 2}).closeTag();
+    buildTitleMessage = function(msg, text, titleType) {
+        return msg.addTag("tr", "thead " + (titleType ? titleType : "headInstruct")).addSingle("td", "", text, {colspan: 2}).closeTag();
+    },
+
+    /**
+     * Adds a formatted Error to the message.
+     * @param {messageBuilder} msg Message object.
+     * @param {string} err The error text to display.
+     * @returns {messageBuilder}
+     */
+    buildErrorMessage = function(msg, err) {
+        return msg
+            .addTag("tr", "thead headError").addSingle("td", "", "Error", {colspan: 2}).closeTag()
+            .addTag("tr").addSingle("td", "", err, {colspan: 2}).closeTag();
+    },
+
+    buildListBtnsMessage = function(msg, list, id, complete) {
+        msg
+            .addSingle("span", "btn", "[" + lookup.symbol.remove + "](!gme_list delete "  + list + " " + id + ")")
+            .addSingle("span", "btn", "[" + lookup.symbol.edit + "](!gme_list edit " + list + " " + id + ")");
+        if (complete) {
+            msg.addSingle("span", "btn", "[" + lookup.symbol.complete + "](!gme_list complete " + list + " " + id + ")");
+        }
+        return msg;
+    },
+
+    buildListMessage = function(msg, listName, title, descriptor) {
+        msg.addTag("tr", "thead headInstruct").addSingle("td", "th", title, {colspan: 2}).closeTag();
+        buildHelpMessage(msg, descriptor);
+        msg.addTag("tr", "seperate centre rowAlt").addSingle("td", "", "[" + lookup.symbol.add + " add new entry.](!&#13;#gme_list)", {colspan: 2}).closeTag();
+
+        let listData = lists[listName];
+        if (listData.length > 0) {
+            for(let i = 0; listData && i < listData.length; i++) {
+                log("listData[" + i + "] = " + listData[i]);
+                let complete = listData[i].startsWith(lookup.symbol.complete) || listData[i].startsWith;
+                msg.addTag("tr", i % 2 == 0 ? "rowMain" : "rowAlt")
+                    .addTag("td", "li", "", {colspan: 2})
+                        .addSingle("span", complete ? "strikethrough" : "", (complete ? listData[i].slice(1) : listData[i]) + "<br/>");
+                        if (!complete) { 
+                            buildListBtnsMessage(msg, listName, i, listName == "threads");
+                        }
+                msg.closeTag("tr");
+            }
+        } else {
+            buildHelpMessage(msg, "<i>List is empty. Use button above to add entries.</i>");
+        }
+        return msg;
     },
 
     //----------------//
@@ -1139,7 +1482,9 @@ var GMEmulator = GMEmulator || (function(){
     handleInput = function(msg) {
         if (msg.type == "api") {
             var target = msg.who;
-            var cmds = msg.content.trim().split(/[ ]+(?![^⌈]*⌉)/g);
+            var cmds = msg.content.trim().split(/[ ]+(?![^⌈]*⌉)/g).map(function(val) {
+                return val.replace(lookup.symbol.stringStart, "").replace(lookup.symbol.stringEnd, "");
+            });
 
             if (commandList.has(cmds[0])) {
                 // Block commands unless everything is ready
@@ -1156,10 +1501,10 @@ var GMEmulator = GMEmulator || (function(){
                 }
 
                 var commandObj = commandList.get(cmds[0])
-                debugLog("CommandObject:" + cmds[0]);
+                debugLog("CommandObject:" + cmds[0] + (cmds.length > 1 ? ", args: \"" + cmds.slice(1).join("\", \"") + "\"" : ""));
                 if (!argCheck(cmds, commandObj.MinArgs, commandObj.MaxArgs)) {
-                    let msg = startMessage();
-                    sendMessage(buildErrorMessage("Command '" + cmds[0] + "' requires a minimum of " + commandObj.MinArgs + " arguments and a maximum of " + commandObj.MaxArgs + "."));
+                    let m = startMessage();
+                    sendMessage(buildErrorMessage(m, "Command '" + cmds[0] + "' requires a minimum of " + commandObj.MinArgs + " arguments and a maximum of " + commandObj.MaxArgs + "."));
                     return;
                 }
 
@@ -1176,40 +1521,5 @@ var GMEmulator = GMEmulator || (function(){
 on("ready", function () {
     sendChat("", "-----------------------");
     GMEmulator.init(false);
+    sendChat("Api", "!gme_input");
 });
-
-
-
-
-class StateHandler {
-    // Returns the stored value or null if module or key do not exist
-    static read(module, key) {
-        if (this.moduleExists(module) && this.keyExists(module, key)) {
-            return state[module.toLowerCase()][key.toLowerCase()];
-        }
-        return null;
-    }
-
-    // Creates or updates the stored value
-    static write(module, key, value) {
-        this.initModule(module)
-        state[module.toLowerCase()][key.toLowerCase()] = value;
-    }
-
-    // Creates a module if it does not already exist
-    static initModule(module) {
-        if (!this.moduleExists(module.toLowerCase())) {
-            state[module.toLowerCase()] = {};
-        }
-    }
-
-    // Returns true if the specified module exists
-    static moduleExists(module) {
-        return state.hasOwnProperty(module.toLowerCase());
-    }
-
-    // Returns true if the specified module and key exists
-    static keyExists(module, key) {
-        return this.moduleExists && state[module.toLowerCase()].hasOwnProperty(key.toLowerCase());
-    }
-}
