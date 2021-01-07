@@ -468,6 +468,8 @@ var GMEmulator = GMEmulator || (function(){
     control = StateHandler.read(data.module, data.control),
     lists = StateHandler.read(data.module, data.lists),
 
+    macroTemp = null, // Used to trick roll20 into letting me use roll queries from API buttons
+
     // Registered command list
     commandList = new Map();
 
@@ -647,7 +649,7 @@ var GMEmulator = GMEmulator || (function(){
                             break;
                         case "startScene":
                             control.currentMenuState = control.menuStates.none;
-                            if (control.currentState == control.states.sceneList) {
+                            if (control.currentState == control.states.sceneLists) {
                                 control.currentState = control.states.sceneStart;
                             }
                             return userInput(["!gme_input"]);
@@ -656,11 +658,11 @@ var GMEmulator = GMEmulator || (function(){
                 let m = startMessage();
                 switch (control.currentMenuState) {
                     case control.menuStates.listThread:
-                        buildListMessage(m, "threads", "Thread List", "Threads are storylines and plot hooks. As the adventure continues, more threads may develop as subplots grow. A thread is considered 'open' as long as it remains unresolved. Usually, the adventure is over as soon as the main thread is solved, or all of the open threads are closed.");
+                        buildListMessage(m, "threads", "Thread List", "Threads are storylines and plot hooks. As the adventure continues, more threads may develop as subplots grow. A thread is considered 'open' as long as it remains unresolved. Usually, the adventure is over as soon as the main thread is solved, or all of the open threads are closed.", lookup.symbol.complete);
                         buildChoiceMessage(m, "Use the buttons below to navigate.", [["Begin next scene", "!gme_input startScene"], ["Character list", "!gme_input menuChars"]]);
                         break;
                     case control.menuStates.listChar:
-                        buildListMessage(m, "chars", "Character List", "Keep track of all of the NPCs who pop up during an adventure. At the end of each scene during an adventure, you will review this list and add any more NPCs who premiered during that scene and remove anyone who has exited the adventure (usually, this means they’re dead).");
+                        buildListMessage(m, "chars", "Character List", "Keep track of all of the NPCs who pop up during an adventure. At the end of each scene during an adventure, you will review this list and add any more NPCs who premiered during that scene and remove anyone who has exited the adventure (usually, this means they’re dead).", lookup.symbol.dead);
                         buildChoiceMessage(m, "Use the buttons below to navigate.", [["Begin next scene", "!gme_input startScene"], ["Threads list", "!gme_input menuThreads"]]);
                         break;
                 }
@@ -769,7 +771,7 @@ var GMEmulator = GMEmulator || (function(){
                             buildHelpMessage(m, "<b>Setup:</b><br/>" + currentScene().setup);
                             buildHelpMessage(m, "<b>Ending:</b><br/>" + currentScene().ending);
                             buildChaosMessage(m, getChaos(), currentScene().chaosShift == "shiftUp" ? lookup.symbol.upMarker : lookup.symbol.downMarker);
-                            buildInputMessage(m, "Now that the scene is complete, you should review your threads.", true);
+                            buildInputMessage(m, "Now that the scene is complete, you should review your lists.", true);
                             sendMessage(m);
                         }
                         break;
@@ -780,13 +782,21 @@ var GMEmulator = GMEmulator || (function(){
 
     listUpdate = function(commands) {
         switch(commands.length) {
-            case 3:
+            case 3: {
                 let curList = getCurrentList();
-                if (curList && commands[1] == "add") {
-                    return listUpdate([commands[0], "add", curList, commands[2]]);
+                if (!curList) {
+                    return;
                 }
-                break;
-            case 4:
+                switch(commands[1]) {
+                    case "add":
+                        return listUpdate([commands[0], "add", curList, commands[2]]);
+                    case "edit":
+                        let args = macroTemp;
+                        macroTemp = null;
+                        return listUpdate([commands[0], "edit", commands[2], args[0], args[1]]);
+                }
+            }
+            case 4: {
                 let list = lists[commands[2]];
                 switch(commands[1]) {
                     case "add":
@@ -795,15 +805,24 @@ var GMEmulator = GMEmulator || (function(){
                     case "delete":
                         list.splice(commands[3], 1);
                         break;
-                    case "edit":
-                        list[commands[2]] = commands[3];
-                        break;
+                }
+                return userInput(["!gme_input"]);
+            }
+            case 5: {
+                //"TEST: !gme_list|edit|Gamma, the lich|chars|2"
+                let list = lists[commands[3]];
+                log("Test: " + list);
+                switch(commands[1]) {
                     case "complete":
                         log("Complete list: " + list)
-                        list[commands[3]] = lookup.symbol.complete + list[commands[3]];
+                        list[commands[4]] = commands[2] + list[commands[4]];
+                        break;
+                    case "edit":
+                        list[commands[4]] = commands[2];
                         break;
                 }
                 return userInput(["!gme_input"]);
+            }
         }
     },
 
@@ -822,6 +841,10 @@ var GMEmulator = GMEmulator || (function(){
             buildHelpMessage(m, "Automatic mode disabled.");
             sendMessage(m);
         }
+    },
+
+    setMacroTemp = function(commands) {
+        macroTemp = commands.slice(1);
     },
 
     //----------------//
@@ -981,10 +1004,11 @@ var GMEmulator = GMEmulator || (function(){
                 stringStart: "⌈",
                 stringEnd: "⌉",
                 add: "➕",
-                remove: "➖",
+                remove: "╳",
                 edit: "✎",
                 complete: "✔️",
-                dead: "☠️"
+                dead: "🕱",
+                revive: "🤍"
             };
         },
 
@@ -1060,7 +1084,8 @@ var GMEmulator = GMEmulator || (function(){
             // Used for automatic mode
             manageMacro("GM_Emulator", "!gme_input", gm.id);
             manageMacro("gme_input", "!gme_input " + lookup.symbol.stringStart + "?{Input}" + lookup.symbol.stringEnd, gm.id);
-            manageMacro("gme_list", "!gme_list add " + lookup.symbol.stringStart + "?{Input}" + lookup.symbol.stringEnd, gm.id);
+            manageMacro("gme_list_add", "!gme_list add " + lookup.symbol.stringStart + "?{Input}" + lookup.symbol.stringEnd, gm.id);
+            manageMacro("gme_list_edit", "!gme_list edit " + lookup.symbol.stringStart + "?{Input}" + lookup.symbol.stringEnd, gm.id);
         },
 
         // Registers all commands
@@ -1079,7 +1104,8 @@ var GMEmulator = GMEmulator || (function(){
             // Commands for automated use
             registerCommand("!gme_auto", toggleAuto, 2, 2);
             registerCommand("!gme_input", userInput, 1, 2);
-            registerCommand("!gme_list", listUpdate, 3, 4);
+            registerCommand("!gme_list", listUpdate, 3, 5);
+            registerCommand("!gme_macro", setMacroTemp, 2, 99);
 
             // Commands only used for debugging
             registerCommand("!gme_debug", toggleDebug, 1, 1);
@@ -1442,17 +1468,17 @@ var GMEmulator = GMEmulator || (function(){
             .addTag("tr").addSingle("td", "", err, {colspan: 2}).closeTag();
     },
 
-    buildListBtnsMessage = function(msg, list, id, complete) {
+    buildListBtnsMessage = function(msg, list, id, strikeSymbol) {
         msg
             .addSingle("span", "btn", "[" + lookup.symbol.remove + "](!gme_list delete "  + list + " " + id + ")")
-            .addSingle("span", "btn", "[" + lookup.symbol.edit + "](!gme_list edit " + list + " " + id + ")");
-        if (complete) {
-            msg.addSingle("span", "btn", "[" + lookup.symbol.complete + "](!gme_list complete " + list + " " + id + ")");
+            .addSingle("span", "btn", "[" + lookup.symbol.edit + "](!gme_macro " + list + " " + id + "&#13;#gme_list_edit)");
+        if (strikeSymbol) {
+            msg.addSingle("span", "btn", "[" + strikeSymbol + "](!gme_list complete " + strikeSymbol + " " + list + " " + id + ")");
         }
         return msg;
     },
 
-    buildListMessage = function(msg, listName, title, descriptor) {
+    buildListMessage = function(msg, listName, title, descriptor, strikeSymbol) {
         msg.addTag("tr", "thead headInstruct").addSingle("td", "th", title, {colspan: 2}).closeTag();
         buildHelpMessage(msg, descriptor);
         msg.addTag("tr", "seperate centre rowAlt").addSingle("td", "", "[" + lookup.symbol.add + " add new entry.](!&#13;#gme_list)", {colspan: 2}).closeTag();
@@ -1461,12 +1487,13 @@ var GMEmulator = GMEmulator || (function(){
         if (listData.length > 0) {
             for(let i = 0; listData && i < listData.length; i++) {
                 log("listData[" + i + "] = " + listData[i]);
-                let complete = listData[i].startsWith(lookup.symbol.complete) || listData[i].startsWith;
+                let complete = listData[i].startsWith(strikeSymbol);
                 msg.addTag("tr", i % 2 == 0 ? "rowMain" : "rowAlt")
                     .addTag("td", "li", "", {colspan: 2})
-                        .addSingle("span", complete ? "strikethrough" : "", (complete ? listData[i].slice(1) : listData[i]) + "<br/>");
+                        .addSingle("span", (complete ? "strikethrough" : ""), (complete ? listData[i].slice(2) : listData[i]) + "<br/>");
+                        log((complete ? listData[i].slice(1) : listData[i]) + "<br/>");
                         if (!complete) { 
-                            buildListBtnsMessage(msg, listName, i, listName == "threads");
+                            buildListBtnsMessage(msg, listName, i, strikeSymbol);
                         }
                 msg.closeTag("tr");
             }
