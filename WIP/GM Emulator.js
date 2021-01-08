@@ -724,7 +724,7 @@ var GMEmulator = GMEmulator || (function(){
                             let m = startMessage();
                             buildSceneMessage(m, currentScene(), true);
                             buildInputMessage(m, "Add a description of the scene setup.");
-                            sendMessage(m);
+                            sendMessage(m, true);
                             break;
                     case control.states.sceneDesc:
                         if (commands.length > 1) {
@@ -734,12 +734,12 @@ var GMEmulator = GMEmulator || (function(){
                             buildTitleMessage(m, "Scene " + scenes.index, "headInput");
                             buildHelpMessage(m, "<b>Setup:</b><br/>" + currentScene().setup);
                             buildHelpMessage(m, "Play out the scene. When the action is finished use the 'GM_Emulator' macro, type <span style='font-family: Consolas; background-color: #e6e6e6;'>!gme_input</span> in chat, or click [here](!gme_input).");
-                            sendMessage(m);
+                            sendMessage(m, true);
                         } else {
                             let m = startMessage();
                             buildSceneMessage(m, currentScene(), true);
                             buildInputMessage(m, "Add a description of the scene setup.");
-                            sendMessage(m);
+                            sendMessage(m, true);
                         }
                         break;
                     case control.states.sceneRunning:
@@ -748,7 +748,7 @@ var GMEmulator = GMEmulator || (function(){
                                 control.currentState = control.states.sceneEnd;
                                 let m = startMessage();
                                 buildInputMessage(m, "Describe how the scene concluded.");
-                                sendMessage(m);
+                                sendMessage(m, true);
                             } else {
                                 let m = startMessage();
                                 buildHelpMessage(m, "Continue playing out the scene. When the action is finished use the 'GM_Emulator' macro, type <span style='font-family: Consolas; background-color: #e6e6e6;'>!gme_input</span> in chat, or click [here](!gme_input).");
@@ -766,11 +766,11 @@ var GMEmulator = GMEmulator || (function(){
                             control.currentState = control.states.sceneChaos;
                             let m = startMessage();
                             buildChoiceMessage(m, "Were the PCs in control of the scene?", [["Yes", "!gme_input shiftDown"], ["No", "!gme_input shiftUp"]]);
-                            sendMessage(m);
+                            sendMessage(m, true);
                         } else {
                             let m = startMessage();
                             buildInputMessage(m, "Describe how the scene concluded.");
-                            sendMessage(m);
+                            sendMessage(m, true);
                         }
                         break;
                     case control.states.sceneChaos:
@@ -787,12 +787,12 @@ var GMEmulator = GMEmulator || (function(){
                                 buildChaosMessage(m, getChaos(), lookup.symbol.downMarker);
                             }
                             control.currentState = control.states.sceneSummary;
-                            sendMessage(m);
+                            sendMessage(m, true);
                             return userInput(["!gme_input"]);
                         } else {
                             let m = startMessage();
                             buildChoiceMessage(m, "Were the PCs in control of the scene?", [["Yes", "!gme_input shiftDown"], ["No", "!gme_input shiftUp"]]);
-                            sendMessage(m);
+                            sendMessage(m, true);
                         }
                         break;
                     case control.states.sceneSummary:
@@ -807,7 +807,7 @@ var GMEmulator = GMEmulator || (function(){
                             buildHelpMessage(m, "<b>Ending:</b><br/>" + currentScene().ending);
                             buildChaosMessage(m, getChaos(), currentScene().chaosShift == "shiftUp" ? lookup.symbol.upMarker : lookup.symbol.downMarker);
                             buildInputMessage(m, "Now that the scene is complete, you should review your lists.", true);
-                            sendMessage(m);
+                            sendMessage(m, true);
                         }
                         break;
                 }
