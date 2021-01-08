@@ -219,7 +219,7 @@ var GMEmulator = GMEmulator || (function(){
         }
 
         /**
-         * Appends a new html element. Automatically uses the style that amtches the tag, if exists.
+         * Appends a new html element. Guidedally uses the style that amtches the tag, if exists.
          * @param {string} tag the tag name (a, table, dive, etc).
          * @param {string} style a space-delimited string of css style names to apply to the object. These styles supercede the implict tag style.
          * @param {string} contents the innerHTML of the element.
@@ -621,11 +621,46 @@ var GMEmulator = GMEmulator || (function(){
 
     reportStatus = function(commands) {
         let m = startMessage();
-        buildTitleMessage(m, "Current State");
-        buildHelpMessage(m, "CurrentMode: " + control.currentMode);
-        buildHelpMessage(m, "CurrentState: " + control.currentState);
-        buildHelpMessage(m, "CurrentMenuState: " + control.currentMenuState);
+        
+        buildTitleMessage(m, "GM Emulator");
+
+        if (control.currentMode == control.modes.passive) {
+            buildHelpMessage(m, "Guided mode is disabled.");
+            buildHelpMessage(m, "<span style='font-family: Consolas; background-color: #e6e6e6;'>!gme_auto on</span><br/>Enables guided mode.");
+            buildHelpMessage(m, "<span style='font-family: Consolas; background-color: #e6e6e6;'>!gme_auto off</span><br/>Disables guided mode.", "rowAlt");
+        } else {
+            buildHelpMessage(m, "Guided mode is enabled.");
+            buildHelpMessage(m, "<span style='font-family: Consolas; background-color: #e6e6e6;'>!gme_auto on</span><br/>Enables guided mode.");
+            buildHelpMessage(m, "<span style='font-family: Consolas; background-color: #e6e6e6;'>!gme_auto off</span><br/>Disables guided mode.", "rowAlt");
+
+            buildTitleMessage(m, "Guided Mode Commands", "headScene");
+            buildHelpMessage(m, "#GM_Emulator (<span style='font-family: Consolas; background-color: #e6e6e6;'>!gme_input</span>)<br/>Use the guided guidance mode.");
+            buildHelpMessage(m, "#Lists (<span style='font-family: Consolas; background-color: #e6e6e6;'>!gme_menu</span>)<br/>Displays the campaign lists.", "rowAlt");
+        }
+
+        buildTitleMessage(m, "Commands", "headScene");
+        buildHelpMessage(m, "#Event (<span style='font-family: Consolas; background-color: #e6e6e6;'>!gme_event</span>)<br/>Generate a random event.");
+        buildHelpMessage(m, "#Scene (<span style='font-family: Consolas; background-color: #e6e6e6;'>!gme_scene</span>)<br/>Generate a scene.", "rowAlt");
+        buildHelpMessage(m, "#Fate<br/>Randomly answer a yes/no question.");
+        buildHelpMessage(m, "#Chaos_Up (<span style='font-family: Consolas; background-color: #e6e6e6;'>!gme_chaos +</span>)<br/>Increase the Chaos level");
+        buildHelpMessage(m, "#Chaos_Down (<span style='font-family: Consolas; background-color: #e6e6e6;'>!gme_chaos -</span>)<br/>Decrease the Chaos level", "rowAlt");
+        buildHelpMessage(m, "#Chaos (<span style='font-family: Consolas; background-color: #e6e6e6;'>!gme_chaos</span>)<br/>Display the current Chaos level");
+
+
+        if (getDebug()) {
+            buildTitleMessage(m, "Current State");
+            buildHelpMessage(m, "CurrentMode: " + control.currentMode);
+            buildHelpMessage(m, "CurrentState: " + control.currentState);
+            buildHelpMessage(m, "CurrentMenuState: " + control.currentMenuState);
+        }
         sendMessage(m);
+    },
+
+    showLists = function(commands) {
+        if (control.currentMenuState == control.menuStates.none) {
+            control.currentMenuState = control.menuStates.listChar;
+        }
+        return userInput(["!gme_input"]);
     },
 
     userInput = function(commands) {
@@ -633,8 +668,8 @@ var GMEmulator = GMEmulator || (function(){
             // If not in automated mode, report that to user.
             let m = startMessage();
             buildTitleMessage(m, "GM Emulator");
-            buildHelpMessage(m, "Automatic mode is disabled");
-            buildHelpMessage(m, "If you want to enable automatic mode type <span style='font-family: Consolas; background-color: #e6e6e6;'>!gme_auto on</span> in chat or click [here](!gme_auto on).");
+            buildHelpMessage(m, "Guided mode is disabled");
+            buildHelpMessage(m, "If you want to enable guided mode type <span style='font-family: Consolas; background-color: #e6e6e6;'>!gme_auto on</span> in chat or click [here](!gme_auto on).");
             sendMessage(m);
         }
         else {
@@ -659,11 +694,11 @@ var GMEmulator = GMEmulator || (function(){
                 switch (control.currentMenuState) {
                     case control.menuStates.listThread:
                         buildListMessage(m, "threads", "Thread List", "Threads are storylines and plot hooks. As the adventure continues, more threads may develop as subplots grow. A thread is considered 'open' as long as it remains unresolved. Usually, the adventure is over as soon as the main thread is solved, or all of the open threads are closed.", lookup.symbol.complete);
-                        buildChoiceMessage(m, "Use the buttons below to navigate.", [["Begin next scene", "!gme_input startScene"], ["Character list", "!gme_input menuChars"]]);
+                        buildChoiceMessage(m, "Use the buttons below to navigate.", [[(control.currentState == control.states.sceneLists ? "Begin next scene" : "Return to scene"), "!gme_input startScene"], ["Character list", "!gme_input menuChars"]]);
                         break;
                     case control.menuStates.listChar:
                         buildListMessage(m, "chars", "Character List", "Keep track of all of the NPCs who pop up during an adventure. At the end of each scene during an adventure, you will review this list and add any more NPCs who premiered during that scene and remove anyone who has exited the adventure (usually, this means they’re dead).", lookup.symbol.dead);
-                        buildChoiceMessage(m, "Use the buttons below to navigate.", [["Begin next scene", "!gme_input startScene"], ["Threads list", "!gme_input menuThreads"]]);
+                        buildChoiceMessage(m, "Use the buttons below to navigate.", [[(control.currentState == control.states.sceneLists ? "Begin next scene" : "Return to scene"), "!gme_input startScene"], ["Threads list", "!gme_input menuThreads"]]);
                         break;
                 }
 
@@ -831,14 +866,14 @@ var GMEmulator = GMEmulator || (function(){
         if (control.currentMode == control.modes.passive) {
             control.currentMode = control.modes.auto;
             buildTitleMessage(m, "GM Emulator");
-            buildHelpMessage(m, "Automatic mode enabled.");
+            buildHelpMessage(m, "Guided mode enabled.");
             sendMessage(m);
             userInput(["!gme_input"]);
         }
         else {
             control.currentMode = control.modes.passive;
             buildTitleMessage(m, "GM Emulator");
-            buildHelpMessage(m, "Automatic mode disabled.");
+            buildHelpMessage(m, "Guided mode disabled.");
             sendMessage(m);
         }
     },
@@ -1031,7 +1066,7 @@ var GMEmulator = GMEmulator || (function(){
                             auto: 1         // Emulator is actively controlling the flow of scenes.
                         },
                         states: {
-                            idle: 0,            // Automatic mode has not been initiated before
+                            idle: 0,            // Guided mode has not been initiated before
                             sceneStart: 1,      // A scene has been initiated. Waiting on player to click 'continue'.
                             sceneDesc: 2,       // Scene generated and displayed. Waiting on player to provide scene description.
                             sceneRunning: 3,    // Players take over the moment-by-moment running of the scene as it progresses. Waiting on players to call !gme_endscene
@@ -1079,9 +1114,9 @@ var GMEmulator = GMEmulator || (function(){
             manageMacro("Chaos", "!gme_chaos", gm.id);
             manageMacro("Scene", "!gme_scene", gm.id);
             manageMacro("Event", "!gme_event", gm.id);
-            manageMacro("Reload", "!gme_reload", gm.id);
+            manageMacro("Lists", "!gme_menu", gm.id);
 
-            // Used for automatic mode
+            // Used for guided mode
             manageMacro("GM_Emulator", "!gme_input", gm.id);
             manageMacro("gme_input", "!gme_input " + lookup.symbol.stringStart + "?{Input}" + lookup.symbol.stringEnd, gm.id);
             manageMacro("gme_list_add", "!gme_list add " + lookup.symbol.stringStart + "?{Input}" + lookup.symbol.stringEnd, gm.id);
@@ -1106,11 +1141,12 @@ var GMEmulator = GMEmulator || (function(){
             registerCommand("!gme_input", userInput, 1, 2);
             registerCommand("!gme_list", listUpdate, 3, 5);
             registerCommand("!gme_macro", setMacroTemp, 2, 99);
+            registerCommand("!gme_menu", showLists, 1, 1);
 
             // Commands only used for debugging
             registerCommand("!gme_debug", toggleDebug, 1, 1);
             registerCommand("!gme_isdebug", testDebug, 1, 1);
-            registerCommand("!testreset", forceDeleteData, 1, 1);
+            registerCommand("!!gme_reset", forceDeleteData, 1, 1);
             if (getDebug()) {
                 registerCommand("!testerror", testError, 1, 1);
                 registerCommand("!testnote", testNote, 1, 1);
@@ -1442,8 +1478,8 @@ var GMEmulator = GMEmulator || (function(){
      * @param {string} err The error text to display.
      * @returns {messageBuilder}
      */
-    buildHelpMessage = function(msg, text) {
-        return msg.addTag("tr", "helpText bordered").addSingle("td", "", text, {colspan: 2}).closeTag();
+    buildHelpMessage = function(msg, text, format) {
+        return msg.addTag("tr", "helpText bordered " + format).addSingle("td", "", text, {colspan: 2}).closeTag();
     },
 
     /**
@@ -1481,7 +1517,7 @@ var GMEmulator = GMEmulator || (function(){
     buildListMessage = function(msg, listName, title, descriptor, strikeSymbol) {
         msg.addTag("tr", "thead headInstruct").addSingle("td", "th", title, {colspan: 2}).closeTag();
         buildHelpMessage(msg, descriptor);
-        msg.addTag("tr", "seperate centre rowAlt").addSingle("td", "", "[" + lookup.symbol.add + " add new entry.](!&#13;#gme_list)", {colspan: 2}).closeTag();
+        msg.addTag("tr", "seperate centre rowAlt").addSingle("td", "", "[" + lookup.symbol.add + " Add new entry.](!&#13;#gme_list)", {colspan: 2}).closeTag();
 
         let listData = lists[listName];
         if (listData.length > 0) {
@@ -1548,5 +1584,5 @@ var GMEmulator = GMEmulator || (function(){
 on("ready", function () {
     sendChat("", "-----------------------");
     GMEmulator.init(false);
-    sendChat("Api", "!gme_input");
+    sendChat("Api", "!gme");
 });
